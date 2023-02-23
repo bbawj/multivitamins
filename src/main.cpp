@@ -22,8 +22,8 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < n; i++) {
     std::cout << "Init " << client_ports[i] << std::endl;
     client_array[i] = new PerfectLink(client_ports[i]);
-    threads[i] = std::thread(client_array[i]->Run, client_ports[i], &n,
-                             &listeners, &cv_m, &cv);
+    threads[i] = std::thread(client_array[i]->Run, client_ports[i], n,
+                             std::ref(listeners), std::ref(cv_m), std::ref(cv));
   }
 
   std::cout << "Main waiting for init" << std::endl;
@@ -35,8 +35,9 @@ int main(int argc, char *argv[]) {
   std::cout << "Begin building connections" << std::endl;
   PerfectLink::BuildConnections();
 
-  client_array[0]->Send("127.0.0.1", 8081, "Message from 8080");
-  client_array[1]->Send("127.0.0.1", 8082, "Message from 8081");
+  client_array[0]->Send("127.0.0.1", 8081, "Message 1 from 8080");
+  client_array[0]->Send("127.0.0.1", 8081, "Message 2 from 8080");
+  client_array[1]->Send("127.0.0.1", 8082, "Message 1 from 8081");
 
   for (int i = 0; i < n; i++) {
     threads[i].join();

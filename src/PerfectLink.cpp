@@ -17,8 +17,8 @@ std::map<int, std::map<int, int>> PerfectLink::topology;
 
 PerfectLink::PerfectLink(int port) : port(port) {}
 
-void *PerfectLink::Run(int port, int *n, int *listeners, std::mutex *cv_m,
-                       std::condition_variable *cv) {
+void *PerfectLink::Run(int port, int n, int &listeners, std::mutex &cv_m,
+                       std::condition_variable &cv) {
   int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (socket_fd == -1) {
     std::cerr << "Cant create socket";
@@ -46,12 +46,13 @@ void *PerfectLink::Run(int port, int *n, int *listeners, std::mutex *cv_m,
     std::cerr << "Can't listen !";
     exit(EXIT_FAILURE);
   }
-  std::lock_guard<std::mutex> lk(*cv_m);
-  ++(*listeners);
-  std::cout << "Value of listenres: " << listeners << std::endl;
-  if (*listeners == *n) {
-    cv->notify_one();
+  cv_m.lock();
+  listeners++;
+  std::cout << "Value of listeners: " << listeners << ", n: " << n << std::endl;
+  if (listeners == n) {
+    cv.notify_one();
   }
+  cv_m.unlock();
 
   Listen(port, server);
 }
@@ -136,6 +137,11 @@ void PerfectLink::BuildConnections() {
                 << std::endl;
       std::pair<int, struct sockaddr_in> connecting_socket_info = j->second;
       int connection_fd = 0;
+      if ((connection_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        std::cout << "[ERROR] CAN'T CREATE SOCKET"
+                  << "\n";
+        exit(EXIT_FAILURE);
+      }
       struct sockaddr_in server = connecting_socket_info.second;
       while (connect(connection_fd, (struct sockaddr *)&server,
                      sizeof(server)) == -1) {
@@ -144,8 +150,13 @@ void PerfectLink::BuildConnections() {
                   << std::endl;
         sleep(5);
       }
-      topology.insert(
-          {cur_port, std::map<int, int>{{connecting_port, connection_fd}}});
+      if (topology.count(cur_port) == 0) {
+        topology.insert({cur_port, std::map<int, int>{}});
+      }
+      topology.find(cur_port)->second.insert({connecting_port, connection_fd});
+      // std::cout << "Insert into " << cur_port << ": " << connecting_port << "
+      // "
+      //           << connection_fd << std::endl;
     }
   }
 }
@@ -164,16 +175,15 @@ void PerfectLink::Send(std::string host, int port, std::string data) {
   }
 
   auto connection_search = connections.find(port);
-  if (connection_search != connections.end()) {
+  if (connection_search == connections.end()) {
     std::cout << "Unable to find connections to port " << port << std::endl;
     return;
   } else {
     connection_fd = connection_search->second;
   }
 
-  while (send(connection_fd, data.c_str(), data.size(), 0) <= 0) {
+  if (send(connection_fd, data.c_str(), data.size(), 0) <= 0) {
     std::cout << "ERROR failed to send data to " << host << ":" << port
               << std::endl;
-    sleep(5);
   }
 }

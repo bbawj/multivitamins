@@ -9,8 +9,8 @@ impl Get {
     pub fn new(key: String) -> Get {
         Get { key: key }
     }
-    pub fn key(&self) -> String {
-        self.key
+    pub fn key(&self) -> &str {
+        &self.key
     }
     pub(crate) fn parse_frame(parse: &mut Parse) -> crate::cli::Result<Get> {
         let key = parse.next_string()?;

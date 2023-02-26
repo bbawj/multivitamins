@@ -1,5 +1,5 @@
 use clap::{arg, command, Command};
-use multivitamins::cli::{get::Get, connection::Connection, COMMAND_LISTENER_PORT};
+use multivitamins::cli::{get::Get, connection::Connection, COMMAND_LISTENER_PORT, command::Command as CliCommand};
 use tokio::net::TcpStream;
 
 
@@ -14,20 +14,21 @@ async fn main() {
         .subcommand(Command::new("put").about("Set a key").arg(arg!([KEY])).arg(arg!([VALUE])))
         .get_matches();
 
-    let key;
-    let value;
+    let key: &str;
+    let value: u64;
     let frame;
 
     match matches.subcommand() {
         Some(("get", sub_matches)) => {
             key = sub_matches.get_one::<String>("KEY").expect("get command; key was not a string");
+            println!("Key requested is {}", key);
             let get_cmd = Get::new(key.to_string());
             frame = get_cmd.into_frame();
         },
-       Some(("put", sub_matches)) => {
-            key = sub_matches.get_one::<String>("KEY").expect("get command; key was not a string");
-            value = sub_matches.get_one::<u64>("VALUE");
-       }, 
+       // Some(("put", sub_matches)) => {
+       //      key = sub_matches.get_one::<String>("KEY").expect("get command; key was not a string");
+       //      value = sub_matches.get_one::<u64>("VALUE");
+       // }, 
         _ => unreachable!("Exhausted list of subcommands and subcommand_required prevents `None`"),
     }
     // create a Frame
@@ -36,6 +37,14 @@ async fn main() {
     let address = String::from("127.0.0.1");
     let port = COMMAND_LISTENER_PORT;
     let socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
-    let connection = Connection::new(socket);
-    connection.write_frame(&frame).await.unwrap()
+    let mut connection = Connection::new(socket);
+    println!("Connected to CliServer");
+    connection.write_frame(&frame).await.unwrap();
+    let response_frame = connection.read_frame().await.unwrap().unwrap();
+    let cmd = CliCommand::from_frame(response_frame).expect("failed to read response");
+    match cmd {
+        CliCommand::Response(r) => print!("Key: {}, Value: {}", r.key(), r.value()),
+        _ => panic!("incorrect command received")
+    }
+    
 }

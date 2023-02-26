@@ -1,4 +1,6 @@
-use std::{fmt, io::Cursor, string::FromUtf8Error};
+use std::{fmt, io::Cursor, num::TryFromIntError, string::FromUtf8Error};
+
+use bytes::Buf;
 
 // a frame for our message
 #[derive(Clone, Debug)]
@@ -45,36 +47,86 @@ impl Frame {
     }
     /// Check if message can be decoded
     pub fn check(src: &mut Cursor<&[u8]>) -> Result<(), Error> {
-        Self::get_line(src)?;
-        Ok(())
+        match get_u8(src)? {
+            b'+' => {
+                get_line(src)?;
+                Ok(())
+            }
+            b'-' => {
+                get_int(src)?;
+                Ok(())
+            }
+            b'*' => {
+                let len = get_int(src)?;
+                for _ in 0..len {
+                    Frame::check(src)?;
+                }
+                Ok(())
+            }
+            actual => Err(format!("protocol error; invalid frame type byte {}", actual).into()),
+        }
     }
 
     pub fn parse(src: &mut Cursor<&[u8]>) -> Result<Frame, Error> {
-        let line = Self::get_line(src)?.to_vec();
-        let string = String::from_utf8(line)?;
-        Ok(Frame::Str(string))
-    }
-
-    pub fn get_line<'a>(src: &'a mut Cursor<&[u8]>) -> Result<&'a [u8], Error> {
-        let start = src.position() as usize;
-        let end = src.get_ref().len() - 1;
-
-        for i in start..end {
-            if src.get_ref()[i] == b'\r' && src.get_ref()[i + 1] == b'\n' {
-                src.set_position((i + 2) as u64);
-                return Ok(&src.get_ref()[start..i]);
+        match get_u8(src)? {
+            // this is a string
+            b'+' => {
+                let line = get_line(src)?.to_vec();
+                let string = String::from_utf8(line)?;
+                Ok(Frame::Str(string))
             }
+            // this is an int
+            b'-' => {
+                let line = get_int(src)?;
+                Ok(Frame::Integer(line))
+            }
+            // this is a frame
+            b'*' => {
+                let len = get_int(src)?.try_into()?;
+                let mut out = Vec::with_capacity(len);
+                for _ in 0..len {
+                    out.push(Frame::parse(src)?);
+                }
+
+                Ok(Frame::Array(out))
+            }
+            _ => unimplemented!(),
         }
+    }
+}
 
-        Err(Error::Incomplete)
+fn get_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
+    if !src.has_remaining() {
+        return Err(Error::Incomplete);
     }
 
-    pub fn get_int(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
-        use atoi::atoi;
+    Ok(src.get_u8())
+}
 
-        let str_src = Self::get_line(src)?;
-        atoi(str_src).ok_or_else(|| "protocol invalid frame format".into())
+fn get_line<'a>(src: &'a mut Cursor<&[u8]>) -> Result<&'a [u8], Error> {
+    let start = src.position() as usize;
+    let mut end = src.get_ref().len();
+    if end == 0 {
+        panic!("no line")
+    } else {
+        end -= 1;
     }
+
+    for i in start..end {
+        if src.get_ref()[i] == b'\r' && src.get_ref()[i + 1] == b'\n' {
+            src.set_position((i + 2) as u64);
+            return Ok(&src.get_ref()[start..i]);
+        }
+    }
+
+    Err(Error::Incomplete)
+}
+
+fn get_int(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
+    use atoi::atoi;
+
+    let str_src = get_line(src)?;
+    atoi(str_src).ok_or_else(|| "protocol invalid frame format".into())
 }
 
 impl std::error::Error for Error {}
@@ -93,6 +145,12 @@ impl From<String> for Error {
 
 impl From<FromUtf8Error> for Error {
     fn from(_src: FromUtf8Error) -> Error {
+        "protocol error; invalid frame format".into()
+    }
+}
+
+impl From<TryFromIntError> for Error {
+    fn from(_src: TryFromIntError) -> Error {
         "protocol error; invalid frame format".into()
     }
 }

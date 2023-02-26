@@ -7,19 +7,18 @@ pub struct Response {
 }
 
 impl Response {
-    pub fn new(key: String, value: u64, error: &str) -> Response {
+    pub fn new(key: String, value: u64) -> Response {
         Response { key, value }
     }
-    pub fn key(&self) -> String {
-        self.key
+    pub fn key(&self) -> &str {
+        &self.key
     }
-    pub fn value(&self) -> u64 {
-        self.value
+    pub fn value(&self) -> &u64 {
+        &self.value
     }
     pub(crate) fn parse_frame(parse: &mut Parse) -> crate::cli::Result<Response> {
         let key = parse.next_string()?;
         let value = parse.next_int()?;
-        let error = parse.next_string()?;
         Ok(Response { key, value })
     }
     pub fn into_frame(self) -> Frame {

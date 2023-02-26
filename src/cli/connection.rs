@@ -111,6 +111,8 @@ impl Connection {
             Frame::Array(val) => {
                 // Encode the frame type prefix. For an array, it is `*`.
                 self.stream.write_u8(b'*').await?;
+                // Encode the length of the array.
+                self.write_decimal(val.len() as u64).await?;
                 // Iterate and encode each entry in the array.
                 for entry in &**val {
                     self.write_val(entry).await?;
@@ -121,6 +123,20 @@ impl Connection {
         }
         self.stream.flush().await
     }
+
+    async fn write_decimal(&mut self, val: u64) -> io::Result<()> {
+        use std::io::Write;
+        // Convert the value to a string
+        let mut buf = [0u8; 20];
+        let mut buf = Cursor::new(&mut buf[..]);
+        write!(&mut buf, "{}", val)?;
+
+        let pos = buf.position() as usize;
+        self.stream.write_all(&buf.get_ref()[..pos]).await?;
+        self.stream.write_all(b"\r\n").await?;
+        Ok(())
+    }
+
     pub async fn write_val(&mut self, frame: &Frame) -> io::Result<()> {
         match frame {
             Frame::Str(val) => {
@@ -130,21 +146,12 @@ impl Connection {
                 self.stream.write_all(b"\r\n").await?;
             }
             Frame::Integer(val) => {
-                use std::io::Write;
                 // encode ints as -
                 self.stream.write_u8(b'-').await?;
-
-                // Convert the value to a string
-                let mut buf = [0u8; 20];
-                let mut buf = Cursor::new(&mut buf[..]);
-                write!(&mut buf, "{}", val)?;
-
-                let pos = buf.position() as usize;
-                self.stream.write_all(&buf.get_ref()[..pos]).await?;
-                self.stream.write_all(b"\r\n").await?;
+                self.write_decimal(*val).await?;
             }
             // we are writing bytes based on an array, there cant be arrays to write
-            Frame::Array(val) => unreachable!()
+            Frame::Array(_) => unreachable!()
         }
         Ok(())
     }

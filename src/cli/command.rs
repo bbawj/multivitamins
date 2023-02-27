@@ -1,8 +1,9 @@
-use super::{frame::Frame, get::Get, parse::Parse, response::Response};
+use super::{frame::Frame, get::Get, op_message::OpMessage, parse::Parse, response::Response};
 
 pub enum Command {
     Get(Get),
     Response(Response),
+    OpMessage(OpMessage),
 }
 
 impl Command {
@@ -13,6 +14,7 @@ impl Command {
         let command = match &command_name[..] {
             "get" => Command::Get(Get::parse_frame(&mut parse)?),
             "response" => Command::Response(Response::parse_frame(&mut parse)?),
+            "opmessage" => Command::OpMessage(OpMessage::parse_frame(&mut parse)?),
             _ => panic!("invalid command name provided"),
         };
 

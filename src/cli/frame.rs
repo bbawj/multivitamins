@@ -37,10 +37,10 @@ impl Frame {
         }
     }
     /// Pushes a string into the array
-    pub(crate) fn push_string(&mut self, value: String) {
+    pub(crate) fn push_string(&mut self, value: &str) {
         match self {
             Frame::Array(vec) => {
-                vec.push(Frame::Str(value));
+                vec.push(Frame::Str(value.to_string()));
             }
             _ => panic!("not an array frame"),
         }

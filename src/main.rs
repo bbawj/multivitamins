@@ -3,13 +3,6 @@ use omnipaxos_core::omni_paxos::{OmniPaxos, OmniPaxosConfig};
 use omnipaxos_storage::memory_storage::MemoryStorage;
 use tokio::net::TcpListener;
 
-#[derive(Clone, Debug)] // Clone and Debug are required traits.
-pub struct KeyValue {
-    pub key: String,
-    pub value: u64,
-}
-
-type OmniPaxosKV = OmniPaxos<KeyValue, (), MemoryStorage<KeyValue, ()>>;
 
 #[tokio::main]
 async fn main() {
@@ -27,9 +20,6 @@ async fn main() {
         peers: my_peers,
         ..Default::default()
     };
-
-    let storage = MemoryStorage::<KeyValue, ()>::default();
-    let mut omnipaxos = omnipaxos_config.build(storage);
 
     // spawn command listener
     // tokio::spawn(async move {
@@ -79,12 +69,3 @@ async fn main() {
 //     println!("Request: {:#?}", http_request);
 // }
 //
-// send outgoing messages. This should be called periodically, e.g. every ms
-fn periodically_send_outgoing_msgs(
-    mut omnipaxos: OmniPaxos<KeyValue, (), MemoryStorage<KeyValue, ()>>,
-) {
-    for out_msg in omnipaxos.outgoing_messages() {
-        let receiver = out_msg.get_receiver();
-        // send out_msg to receiver on network layer
-    }
-}

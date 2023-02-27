@@ -1,14 +1,20 @@
-use crate::cli::{frame::Frame, parse::Parse};
+use crate::{
+    cli::{frame::Frame, parse::Parse},
+    op_server::KeyValue,
+};
 
 #[derive(Debug)]
-pub struct Response {
+pub struct OpMessage {
     key: String,
     value: u64,
 }
 
-impl Response {
-    pub fn new(key: String, value: u64) -> Response {
-        Response { key, value }
+impl OpMessage {
+    pub fn new(kv: KeyValue) -> OpMessage {
+        OpMessage {
+            key: kv.key,
+            value: kv.value,
+        }
     }
     pub fn key(&self) -> &str {
         &self.key
@@ -16,14 +22,14 @@ impl Response {
     pub fn value(&self) -> &u64 {
         &self.value
     }
-    pub(crate) fn parse_frame(parse: &mut Parse) -> crate::cli::Result<Response> {
+    pub(crate) fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let key = parse.next_string()?;
         let value = parse.next_int()?;
-        Ok(Response { key, value })
+        Ok(OpMessage { key, value })
     }
     pub fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("response");
+        frame.push_string("opmessage");
         frame.push_string(&self.key);
         frame.push_int(self.value);
         frame

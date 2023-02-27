@@ -1,18 +1,45 @@
+use omnipaxos_core::messages::Message::{BLE, SequencePaxos};
+use omnipaxos_core::omni_paxos::OmniPaxos;
 use omnipaxos_core::util::NodeId;
+use omnipaxos_storage::memory_storage::MemoryStorage;
+use crate::cli::op_message::OpMessage;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 
-// use crate::OmniPaxosKV;
-//
-// pub struct OmniPaxosServer {
-//     pub node_id : NodeId,
-//     pub db : HashMap<String, u64>,
-//     pub omni_paxos: Arc<Mutex<OmniPaxosKV>>,
-//     pub incoming: mpsc::Receiver<Message<KeyValue, ()>>,
-//     pub outgoing: HashMap<NodeId, mpsc::Sender<Message<KeyValue, ()>>>,
-// }
+use crate::DEFAULT_ADDR;
+
+#[derive(Clone, Debug)] // Clone and Debug are required traits.
+pub struct KeyValue {
+    pub key: String,
+    pub value: u64,
+}
+
+pub type OmniPaxosKV = OmniPaxos<KeyValue, (), MemoryStorage<KeyValue, ()>>;
+
+pub struct OmniPaxosServer {
+    pub node_id: NodeId,
+    pub db: HashMap<String, u64>,
+    pub omni_paxos: Arc<Mutex<OmniPaxosKV>>,
+    pub outgoing: HashMap<NodeId, u64>,
+}
+
+impl OmniPaxosServer {
+    async fn send_outgoing_msgs(&self) {
+        let messages = self.omni_paxos.lock().unwrap().outgoing_messages();
+        for msg in messages {
+            let receiver = msg.get_receiver();
+            let port = self.outgoing.get(&receiver).unwrap();
+            let socket = TcpStream::connect(format!("{}:{}", DEFAULT_ADDR, port));
+            match msg {
+                SequencePaxos(m) => {}
+                BLE(m) => {}
+            }
+
+        }
+    }
+}
 //
 // impl OmniPaxosServer {
 //     async fn send_outgoing_msgs(&mut self) {
@@ -94,5 +121,14 @@ use tokio::net::{TcpListener, TcpStream};
 //                 else => { }
 //             }
 //         }
+//     }
+// }
+// send outgoing messages. This should be called periodically, e.g. every ms
+// fn periodically_send_outgoing_msgs(
+//     mut omnipaxos: OmniPaxos<KeyValue, (), MemoryStorage<KeyValue, ()>>,
+// ) {
+//     for out_msg in omnipaxos.outgoing_messages() {
+//         let receiver = out_msg.get_receiver();
+//         // send out_msg to receiver on network layer
 //     }
 // }

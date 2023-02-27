@@ -7,7 +7,7 @@ pub struct Get {
 
 impl Get {
     pub fn new(key: String) -> Get {
-        Get { key: key }
+        Get { key }
     }
     pub fn key(&self) -> &str {
         &self.key
@@ -18,8 +18,8 @@ impl Get {
     }
     pub fn into_frame(self) -> Frame {
         let mut frame = Frame::array();
-        frame.push_string("get".to_owned());
-        frame.push_string(self.key);
+        frame.push_string("get");
+        frame.push_string(&self.key);
         frame
     }
 }

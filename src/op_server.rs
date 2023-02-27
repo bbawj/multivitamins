@@ -33,7 +33,9 @@ impl OmniPaxosServer {
             let port = self.outgoing.get(&receiver).unwrap();
             let socket = TcpStream::connect(format!("{}:{}", DEFAULT_ADDR, port));
             match msg {
-                SequencePaxos(m) => {}
+                SequencePaxos(m) => {
+                    let frame = OpMessage::SequencePaxos(m).to_frame();
+                }
                 BLE(m) => {}
             }
 

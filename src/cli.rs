@@ -5,7 +5,6 @@ pub mod get;
 pub mod op_message;
 pub mod parse;
 pub mod response;
-pub mod sp_message;
 
 pub const COMMAND_LISTENER_PORT: &str = "60000";
 

@@ -2,7 +2,10 @@ use omnipaxos_core::{
     ballot_leader_election::Ballot,
     messages::{
         ballot_leader_election::{BLEMessage, HeartbeatMsg},
-        sequence_paxos::{AcceptSync, FirstAccept, PaxosMessage, PaxosMsg, Prepare, Promise},
+        sequence_paxos::{
+            AcceptDecide, AcceptSync, Accepted, FirstAccept, PaxosMessage, PaxosMsg, Prepare,
+            Promise,
+        },
         Message,
     },
     storage::StopSign,
@@ -60,7 +63,7 @@ impl OpMessage {
             OpMessage::HeartbeatMessage(_) => todo!(),
         }
     }
-    pub fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, ()>> {
+    pub(crate) fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, ()>> {
         let message_type = parse.next_string()?.to_lowercase();
         let from = parse.next_int()?;
         let to = parse.next_int()?;
@@ -204,10 +207,7 @@ impl ToFromFrame for Promise<KeyValue, ()> {
     }
 
     fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
-        let n = match Ballot::parse_frame(parse)? {
-            OpMessage::Ballot(m) => m,
-            _ => panic!("message error; incorrect spmessage parsed"),
-        };
+        let n = parse_ballot(parse)?;
         let n_accepted = match Ballot::parse_frame(parse)? {
             OpMessage::Ballot(m) => Ballot {
                 n: m.n,
@@ -229,7 +229,6 @@ impl ToFromFrame for Promise<KeyValue, ()> {
         }
         let decided_idx = parse.next_int()?;
         let accepted_idx = parse.next_int()?;
-        let has_stop_sign = parse.next_int()?;
         let stopsign = match StopSign::parse_frame(parse).unwrap() {
             OpMessage::StopSign(s) => s,
             _ => panic!("message error; incorrect message parsed"),
@@ -258,10 +257,7 @@ impl ToFromFrame for Prepare {
     }
 
     fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
-        let n = match Ballot::parse_frame(parse)? {
-            OpMessage::Ballot(m) => m,
-            _ => panic!("message error; incorrect spmessage parsed"),
-        };
+        let n = parse_ballot(parse)?;
         let decided_idx = parse.next_int()?;
         let n_accepted = match Ballot::parse_frame(parse)? {
             OpMessage::Ballot(m) => Ballot {
@@ -302,10 +298,7 @@ impl ToFromFrame for AcceptSync<KeyValue, ()> {
     }
 
     fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
-        let n = match Ballot::parse_frame(parse)? {
-            OpMessage::Ballot(m) => m,
-            _ => panic!("message error; incorrect spmessage parsed"),
-        };
+        let n = parse_ballot(parse)?;
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
         for _ in 0..len {
@@ -348,5 +341,59 @@ impl ToFromFrame for FirstAccept {
         Ok(OpMessage::PaxosMsg(PaxosMsg::FirstAccept(FirstAccept {
             n,
         })))
+    }
+}
+
+impl ToFromFrame for AcceptDecide<KeyValue> {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        self.n.to_frame(frame);
+        frame.push_int(self.decided_idx);
+        frame.push_int(self.entries.len().try_into().unwrap());
+        for kv in &self.entries[..] {
+            kv.to_frame(frame);
+        }
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = parse_ballot(parse)?;
+        let decided_idx = parse.next_int()?;
+        let len = parse.next_int()?;
+        let mut entries = Vec::new();
+        for _ in 0..len {
+            entries.push(match KeyValue::parse_frame(parse)? {
+                OpMessage::KeyValue(k) => k,
+                _ => panic!(),
+            });
+        }
+        Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptDecide(AcceptDecide {
+            n,
+            decided_idx,
+            entries,
+        })))
+    }
+}
+
+impl ToFromFrame for Accepted {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        self.n.to_frame(frame);
+        frame.push_int(self.accepted_idx);
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = parse_ballot(parse)?;
+        let accepted_idx = parse.next_int()?;
+        Ok(OpMessage::PaxosMsg(PaxosMsg::Accepted(Accepted {
+            n,
+            accepted_idx,
+        })))
+    }
+}
+
+fn parse_ballot(parse: &mut Parse) -> crate::cli::Result<Ballot> {
+    match Ballot::parse_frame(parse)? {
+        OpMessage::Ballot(m) => Ok(m),
+        _ => panic!(),
     }
 }

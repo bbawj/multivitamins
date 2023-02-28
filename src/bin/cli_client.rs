@@ -1,5 +1,5 @@
 use clap::{arg, command, Command};
-use multivitamins::cli::{get::Get, connection::Connection, COMMAND_LISTENER_PORT, command::Command as CliCommand};
+use multivitamins::cli::{get::Get, connection::Connection, COMMAND_LISTENER_PORT, DEFAULT_ADDR, command::Command as CliCommand};
 use tokio::net::TcpStream;
 
 
@@ -34,7 +34,7 @@ async fn main() {
     // create a Frame
 
     // sets up tcp connection to the command listener in main.rs
-    let address = String::from("127.0.0.1");
+    let address = String::from(DEFAULT_ADDR);
     let port = COMMAND_LISTENER_PORT;
     let socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
     let mut connection = Connection::new(socket);

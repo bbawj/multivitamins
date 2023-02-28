@@ -115,7 +115,7 @@ impl OpMessage {
                 msg: PaxosMsg::PrepareReq,
             })),
             "prepare" => {
-                let msg = Prepare::parse_frame(parse)?;
+                let msg = Prepare::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::Prepare(p)) => p,
                     _ => panic!("invalid message type"),
@@ -127,7 +127,7 @@ impl OpMessage {
                 }))
             }
             "promise" => {
-                let msg = Promise::parse_frame(parse)?;
+                let msg = Promise::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::Promise(p)) => p,
                     _ => panic!("invalid message type"),
@@ -139,7 +139,7 @@ impl OpMessage {
                 }))
             }
             "acceptsync" => {
-                let msg = AcceptSync::parse_frame(parse)?;
+                let msg = AcceptSync::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::AcceptSync(p)) => p,
                     _ => panic!("invalid message type"),
@@ -151,7 +151,7 @@ impl OpMessage {
                 }))
             }
             "firstaccept" => {
-                let msg = FirstAccept::parse_frame(parse)?;
+                let msg = FirstAccept::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::FirstAccept(p)) => p,
                     _ => panic!("invalid message type"),
@@ -163,7 +163,7 @@ impl OpMessage {
                 }))
             }
             "acceptdecide" => {
-                let msg = AcceptDecide::parse_frame(parse)?;
+                let msg = AcceptDecide::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::AcceptDecide(p)) => p,
                     _ => panic!("invalid message type"),
@@ -175,7 +175,7 @@ impl OpMessage {
                 }))
             }
             "accepted" => {
-                let msg = Accepted::parse_frame(parse)?;
+                let msg = Accepted::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::Accepted(p)) => p,
                     _ => panic!("invalid message type"),
@@ -187,7 +187,7 @@ impl OpMessage {
                 }))
             }
             "decide" => {
-                let msg = Decide::parse_frame(parse)?;
+                let msg = Decide::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::Decide(p)) => p,
                     _ => panic!("invalid message type"),
@@ -211,7 +211,7 @@ impl OpMessage {
                 }))
             }
             "compaction" => {
-                let msg = Compaction::parse_frame(parse)?;
+                let msg = Compaction::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::Compaction(p)) => p,
                     _ => panic!("invalid message type"),
@@ -223,7 +223,7 @@ impl OpMessage {
                 }))
             }
             "acceptstopsign" => {
-                let msg = AcceptStopSign::parse_frame(parse)?;
+                let msg = AcceptStopSign::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::AcceptStopSign(p)) => p,
                     _ => panic!("invalid message type"),
@@ -235,7 +235,7 @@ impl OpMessage {
                 }))
             }
             "acceptedstopsign" => {
-                let msg = AcceptedStopSign::parse_frame(parse)?;
+                let msg = AcceptedStopSign::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::AcceptedStopSign(p)) => p,
                     _ => panic!("invalid message type"),
@@ -247,7 +247,7 @@ impl OpMessage {
                 }))
             }
             "decidestopsign" => {
-                let msg = DecideStopSign::parse_frame(parse)?;
+                let msg = DecideStopSign::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::DecideStopSign(p)) => p,
                     _ => panic!("invalid message type"),
@@ -259,7 +259,7 @@ impl OpMessage {
                 }))
             }
             "forwardstopsign" => {
-                let msg = StopSign::parse_frame(parse)?;
+                let msg = StopSign::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::PaxosMsg(PaxosMsg::ForwardStopSign(p)) => p,
                     _ => panic!("invalid message type"),
@@ -271,7 +271,7 @@ impl OpMessage {
                 }))
             }
             "heartbeatrequest" => {
-                let msg = HeartbeatMsg::parse_frame(parse)?;
+                let msg = HeartbeatMsg::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::HeartbeatMessage(HeartbeatMsg::Request(p)) => p,
                     _ => panic!("invalid message type"),
@@ -283,7 +283,7 @@ impl OpMessage {
                 }))
             }
             "heartbeatreply" => {
-                let msg = HeartbeatMsg::parse_frame(parse)?;
+                let msg = HeartbeatMsg::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::HeartbeatMessage(HeartbeatMsg::Reply(p)) => p,
                     _ => panic!("invalid message type"),
@@ -301,7 +301,7 @@ impl OpMessage {
 
 trait ToFromFrame {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame;
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage>;
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage>;
 }
 
 impl ToFromFrame for KeyValue {
@@ -311,7 +311,7 @@ impl ToFromFrame for KeyValue {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let key = parse.next_string()?;
         let value = parse.next_int()?;
         Ok(OpMessage::KeyValue(KeyValue { key, value }))
@@ -326,7 +326,7 @@ impl ToFromFrame for Ballot {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse.next_int()?.try_into().unwrap();
         let priority = parse.next_int()?;
         let pid = parse.next_int()?;
@@ -355,7 +355,7 @@ impl ToFromFrame for StopSign {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let has_stop_sign = parse.next_int()?;
         if has_stop_sign == 1 {
             let config_id = parse.next_int()?.try_into().unwrap();
@@ -407,9 +407,9 @@ impl ToFromFrame for Promise<KeyValue, ()> {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
-        let n_accepted = match Ballot::parse_frame(parse)? {
+        let n_accepted = match Ballot::from_frame(parse)? {
             OpMessage::Ballot(m) => Ballot {
                 n: m.n,
                 priority: m.priority,
@@ -424,7 +424,7 @@ impl ToFromFrame for Promise<KeyValue, ()> {
         }
         let decided_idx = parse.next_int()?;
         let accepted_idx = parse.next_int()?;
-        let stopsign = match StopSign::parse_frame(parse).unwrap() {
+        let stopsign = match StopSign::from_frame(parse).unwrap() {
             OpMessage::StopSign(s) => s,
             _ => panic!("message error; incorrect message parsed"),
         };
@@ -451,10 +451,10 @@ impl ToFromFrame for Prepare {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         let decided_idx = parse.next_int()?;
-        let n_accepted = match Ballot::parse_frame(parse)? {
+        let n_accepted = match Ballot::from_frame(parse)? {
             OpMessage::Ballot(m) => Ballot {
                 n: m.n,
                 priority: m.priority,
@@ -492,7 +492,7 @@ impl ToFromFrame for AcceptSync<KeyValue, ()> {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
@@ -501,7 +501,7 @@ impl ToFromFrame for AcceptSync<KeyValue, ()> {
         }
         let sync_idx = parse.next_int()?;
         let decided_idx = parse.next_int()?;
-        let stopsign = match StopSign::parse_frame(parse).unwrap() {
+        let stopsign = match StopSign::from_frame(parse).unwrap() {
             OpMessage::StopSign(s) => s,
             _ => panic!("message error; incorrect message parsed"),
         };
@@ -523,8 +523,8 @@ impl ToFromFrame for FirstAccept {
         self.n.to_frame(frame)
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
-        let n = match Ballot::parse_frame(parse)? {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = match Ballot::from_frame(parse)? {
             OpMessage::Ballot(m) => m,
             _ => panic!(),
         };
@@ -546,7 +546,7 @@ impl ToFromFrame for AcceptDecide<KeyValue> {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         let decided_idx = parse.next_int()?;
         let len = parse.next_int()?;
@@ -570,7 +570,7 @@ impl ToFromFrame for Accepted {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         let accepted_idx = parse.next_int()?;
         Ok(OpMessage::PaxosMsg(PaxosMsg::Accepted(Accepted {
@@ -588,7 +588,7 @@ impl ToFromFrame for Decide {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         let decided_idx = parse.next_int()?;
         Ok(OpMessage::PaxosMsg(PaxosMsg::Decide(Decide {
@@ -618,7 +618,7 @@ impl ToFromFrame for Compaction {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         match &(parse.next_string()?)[..] {
             "trim" => Ok(OpMessage::PaxosMsg(PaxosMsg::Compaction(Compaction::Trim(
                 parse.next_int()?,
@@ -639,7 +639,7 @@ impl ToFromFrame for AcceptStopSign {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         let ss = parse_stopsign(parse)?;
         Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptStopSign(
@@ -655,7 +655,7 @@ impl ToFromFrame for AcceptedStopSign {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptedStopSign(
             AcceptedStopSign { n },
@@ -670,7 +670,7 @@ impl ToFromFrame for DecideStopSign {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
         Ok(OpMessage::PaxosMsg(PaxosMsg::DecideStopSign(
             DecideStopSign { n },
@@ -687,11 +687,11 @@ impl ToFromFrame for HeartbeatMsg {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let msg_type = parse.next_string()?;
         match &msg_type[..] {
-            "request" => HeartbeatRequest::parse_frame(parse),
-            "reply" => HeartbeatReply::parse_frame(parse),
+            "request" => HeartbeatRequest::from_frame(parse),
+            "reply" => HeartbeatReply::from_frame(parse),
             _ => panic!("invalid heartbeatmsg"),
         }
     }
@@ -704,7 +704,7 @@ impl ToFromFrame for HeartbeatRequest {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let round = parse.next_int()?.try_into().unwrap();
         Ok(OpMessage::HeartbeatMessage(HeartbeatMsg::Request(
             HeartbeatRequest { round },
@@ -721,7 +721,7 @@ impl ToFromFrame for HeartbeatReply {
         frame
     }
 
-    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let round = parse.next_int()?.try_into().unwrap();
         let ballot = parse_ballot(parse)?;
         let quorum_connected = if parse.next_int()? == 1 { true } else { false };
@@ -736,21 +736,21 @@ impl ToFromFrame for HeartbeatReply {
 }
 
 fn parse_keyvalue(parse: &mut Parse) -> crate::cli::Result<KeyValue> {
-    match KeyValue::parse_frame(parse)? {
+    match KeyValue::from_frame(parse)? {
         OpMessage::KeyValue(m) => Ok(m),
         _ => panic!(),
     }
 }
 
 fn parse_ballot(parse: &mut Parse) -> crate::cli::Result<Ballot> {
-    match Ballot::parse_frame(parse)? {
+    match Ballot::from_frame(parse)? {
         OpMessage::Ballot(m) => Ok(m),
         _ => panic!(),
     }
 }
 
 fn parse_stopsign(parse: &mut Parse) -> crate::cli::Result<StopSign> {
-    match StopSign::parse_frame(parse)? {
+    match StopSign::from_frame(parse)? {
         OpMessage::StopSign(m) => Ok(m.unwrap()),
         _ => panic!(),
     }

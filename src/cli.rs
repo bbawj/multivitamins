@@ -7,6 +7,7 @@ pub mod parse;
 pub mod response;
 
 pub const COMMAND_LISTENER_PORT: &str = "60000";
+pub const DEFAULT_ADDR: &str = "127.0.0.1";
 
 /// Error returned by most functions.
 ///

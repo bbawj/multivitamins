@@ -2,8 +2,10 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::{
     cli::{command::Command, connection::Connection, get::Get, COMMAND_LISTENER_PORT, Result, response::Response},
-    
 };
+
+use crate::DEFAULT_ADDR;
+
 
 pub struct CliServer {
     // list of ports of our op servers
@@ -16,7 +18,7 @@ impl CliServer {
     }
 
     pub async fn listen(&self) -> Result<() >{
-        let address = String::from("127.0.0.1");
+        let address = String::from(DEFAULT_ADDR);
         let port = COMMAND_LISTENER_PORT;
         let listener = TcpListener::bind(format!("{}:{}", address, port)).await.unwrap();
         loop {

@@ -31,7 +31,7 @@ pub struct OmniPaxosServer {
 impl OmniPaxosServer {
     pub async fn listen(&mut self) {
         // Bind the listener to the address
-        let address: String = String::from("127.0.0.1");
+        let address: String = String::from(DEFAULT_ADDR);
         let port: u64 = self.node_id;
         let listener = TcpListener::bind(format!("{}:{}", address, port)).await.unwrap();
 

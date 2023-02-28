@@ -34,7 +34,7 @@ impl OpMessage {
                 frame.push_int(m.to);
                 match &m.msg {
                     PaxosMsg::PrepareReq => {
-                        frame.push_string("prepare");
+                        frame.push_string("preparereq");
                         frame
                     }
                     PaxosMsg::Prepare(p) => {
@@ -101,44 +101,200 @@ impl OpMessage {
                 m.msg.to_frame(&mut frame);
                 frame
             }
-            OpMessage::KeyValue(_) => todo!(),
-            OpMessage::Ballot(_) => todo!(),
-            OpMessage::StopSign(_) => todo!(),
-            OpMessage::PaxosMsg(_) => todo!(),
-            OpMessage::HeartbeatMessage(_) => todo!(),
+            _ => panic!("OpMessage to_frame should only ever take in Message struct"),
         }
     }
     pub(crate) fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, ()>> {
         let message_type = parse.next_string()?.to_lowercase();
         let from = parse.next_int()?;
         let to = parse.next_int()?;
-        let op_message = match &message_type[..] {
-            "preparereq" => todo!(),
-            "prepare" => Prepare::parse_frame(parse)?,
-            "promise" => Promise::parse_frame(parse)?,
-            "acceptsync" => AcceptSync::parse_frame(parse)?,
-            "firstaccept" => todo!(),
-            "acceptdecide" => todo!(),
-            "accepted" => todo!(),
-            "decide" => todo!(),
-            "proposalforward" => todo!(),
-            "compaction" => todo!(),
-            "acceptstopsign" => todo!(),
-            "acceptedstopsign" => todo!(),
-            "decidestopsign" => todo!(),
-            "forwardstopsign" => todo!(),
-            "heartbeat" => todo!(),
+        match &message_type[..] {
+            "preparereq" => Ok(Message::SequencePaxos(PaxosMessage {
+                from,
+                to,
+                msg: PaxosMsg::PrepareReq,
+            })),
+            "prepare" => {
+                let msg = Prepare::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::Prepare(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::Prepare(msg),
+                }))
+            }
+            "promise" => {
+                let msg = Promise::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::Promise(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::Promise(msg),
+                }))
+            }
+            "acceptsync" => {
+                let msg = AcceptSync::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::AcceptSync(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::AcceptSync(msg),
+                }))
+            }
+            "firstaccept" => {
+                let msg = FirstAccept::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::FirstAccept(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::FirstAccept(msg),
+                }))
+            }
+            "acceptdecide" => {
+                let msg = AcceptDecide::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::AcceptDecide(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::AcceptDecide(msg),
+                }))
+            }
+            "accepted" => {
+                let msg = Accepted::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::Accepted(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::Accepted(msg),
+                }))
+            }
+            "decide" => {
+                let msg = Decide::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::Decide(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::Decide(msg),
+                }))
+            }
+            "proposalforward" => {
+                let len = parse.next_int()?;
+                let mut vec = Vec::new();
+                for _ in 0..len {
+                    vec.push(parse_keyvalue(parse)?);
+                }
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::ProposalForward(vec),
+                }))
+            }
+            "compaction" => {
+                let msg = Compaction::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::Compaction(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::Compaction(msg),
+                }))
+            }
+            "acceptstopsign" => {
+                let msg = AcceptStopSign::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::AcceptStopSign(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::AcceptStopSign(msg),
+                }))
+            }
+            "acceptedstopsign" => {
+                let msg = AcceptedStopSign::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::AcceptedStopSign(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::AcceptedStopSign(msg),
+                }))
+            }
+            "decidestopsign" => {
+                let msg = DecideStopSign::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::DecideStopSign(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::DecideStopSign(msg),
+                }))
+            }
+            "forwardstopsign" => {
+                let msg = StopSign::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::PaxosMsg(PaxosMsg::ForwardStopSign(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::SequencePaxos(PaxosMessage {
+                    from,
+                    to,
+                    msg: PaxosMsg::ForwardStopSign(msg),
+                }))
+            }
+            "heartbeatrequest" => {
+                let msg = HeartbeatMsg::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::HeartbeatMessage(HeartbeatMsg::Request(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::BLE(BLEMessage {
+                    from,
+                    to,
+                    msg: HeartbeatMsg::Request(msg),
+                }))
+            }
+            "heartbeatreply" => {
+                let msg = HeartbeatMsg::parse_frame(parse)?;
+                let msg = match msg {
+                    OpMessage::HeartbeatMessage(HeartbeatMsg::Reply(p)) => p,
+                    _ => panic!("invalid message type"),
+                };
+                Ok(Message::BLE(BLEMessage {
+                    from,
+                    to,
+                    msg: HeartbeatMsg::Reply(msg),
+                }))
+            }
             _ => panic!(""),
-        };
-        match op_message {
-            OpMessage::PaxosMsg(msg) => Ok(Message::SequencePaxos(PaxosMessage { from, to, msg })),
-            OpMessage::HeartbeatMessage(msg) => Ok(Message::BLE(BLEMessage { from, to, msg })),
-            _ => panic!()
-            // OpMessage::SequencePaxos(_) => todo!(),
-            // OpMessage::BLEMessage(_) => todo!(),
-            // OpMessage::KeyValue(_) => todo!(),
-            // OpMessage::Ballot(_) => todo!(),
-            // OpMessage::StopSign(_) => todo!(),
         }
     }
 }
@@ -264,13 +420,7 @@ impl ToFromFrame for Promise<KeyValue, ()> {
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
         for _ in 0..len {
-            suffix.push(match KeyValue::parse_frame(parse)? {
-                OpMessage::KeyValue(m) => KeyValue {
-                    key: m.key,
-                    value: m.value,
-                },
-                _ => panic!("message error; incorrect spmessage parsed"),
-            });
+            suffix.push(parse_keyvalue(parse)?);
         }
         let decided_idx = parse.next_int()?;
         let accepted_idx = parse.next_int()?;
@@ -347,13 +497,7 @@ impl ToFromFrame for AcceptSync<KeyValue, ()> {
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
         for _ in 0..len {
-            suffix.push(match KeyValue::parse_frame(parse)? {
-                OpMessage::KeyValue(m) => KeyValue {
-                    key: m.key,
-                    value: m.value,
-                },
-                _ => panic!("message error; incorrect spmessage parsed"),
-            });
+            suffix.push(parse_keyvalue(parse)?);
         }
         let sync_idx = parse.next_int()?;
         let decided_idx = parse.next_int()?;
@@ -408,10 +552,7 @@ impl ToFromFrame for AcceptDecide<KeyValue> {
         let len = parse.next_int()?;
         let mut entries = Vec::new();
         for _ in 0..len {
-            entries.push(match KeyValue::parse_frame(parse)? {
-                OpMessage::KeyValue(k) => k,
-                _ => panic!(),
-            });
+            entries.push(parse_keyvalue(parse)?);
         }
         Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptDecide(AcceptDecide {
             n,
@@ -591,6 +732,13 @@ impl ToFromFrame for HeartbeatReply {
                 quorum_connected,
             },
         )))
+    }
+}
+
+fn parse_keyvalue(parse: &mut Parse) -> crate::cli::Result<KeyValue> {
+    match KeyValue::parse_frame(parse)? {
+        OpMessage::KeyValue(m) => Ok(m),
+        _ => panic!(),
     }
 }
 

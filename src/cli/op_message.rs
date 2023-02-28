@@ -1,10 +1,10 @@
 use omnipaxos_core::{
     ballot_leader_election::Ballot,
     messages::{
-        ballot_leader_election::{BLEMessage, HeartbeatMsg},
+        ballot_leader_election::{BLEMessage, HeartbeatMsg, HeartbeatReply, HeartbeatRequest},
         sequence_paxos::{
-            AcceptDecide, AcceptSync, Accepted, FirstAccept, PaxosMessage, PaxosMsg, Prepare,
-            Promise,
+            AcceptDecide, AcceptStopSign, AcceptSync, Accepted, AcceptedStopSign, Compaction,
+            Decide, DecideStopSign, FirstAccept, PaxosMessage, PaxosMsg, Prepare, Promise,
         },
         Message,
     },
@@ -32,7 +32,7 @@ impl OpMessage {
             OpMessage::SequencePaxos(m) => {
                 frame.push_int(m.from);
                 frame.push_int(m.to);
-                match m.msg {
+                match &m.msg {
                     PaxosMsg::PrepareReq => {
                         frame.push_string("prepare");
                         frame
@@ -41,23 +41,68 @@ impl OpMessage {
                         p.to_frame(&mut frame);
                         frame
                     }
-                    PaxosMsg::Promise(_) => todo!(),
-                    PaxosMsg::AcceptSync(_) => todo!(),
-                    PaxosMsg::FirstAccept(_) => todo!(),
-                    PaxosMsg::AcceptDecide(_) => todo!(),
-                    PaxosMsg::Accepted(_) => todo!(),
-                    PaxosMsg::Decide(_) => todo!(),
-                    PaxosMsg::ProposalForward(_) => todo!(),
-                    PaxosMsg::Compaction(_) => todo!(),
-                    PaxosMsg::AcceptStopSign(_) => todo!(),
-                    PaxosMsg::AcceptedStopSign(_) => todo!(),
-                    PaxosMsg::DecideStopSign(_) => todo!(),
-                    PaxosMsg::ForwardStopSign(_) => todo!(),
+                    PaxosMsg::Promise(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::AcceptSync(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::FirstAccept(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::AcceptDecide(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::Accepted(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::Decide(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::ProposalForward(p) => {
+                        frame.push_string("proposalforward");
+                        frame.push_int(p.len().try_into().unwrap());
+                        for kv in p {
+                            kv.to_frame(&mut frame);
+                        }
+                        frame
+                    }
+                    PaxosMsg::Compaction(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::AcceptStopSign(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::AcceptedStopSign(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::DecideStopSign(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
+                    PaxosMsg::ForwardStopSign(p) => {
+                        p.to_frame(&mut frame);
+                        frame
+                    }
                 }
+            }
+            OpMessage::BLEMessage(m) => {
+                frame.push_int(m.from);
+                frame.push_int(m.to);
+                m.msg.to_frame(&mut frame);
+                frame
             }
             OpMessage::KeyValue(_) => todo!(),
             OpMessage::Ballot(_) => todo!(),
-            OpMessage::BLEMessage(_) => todo!(),
             OpMessage::StopSign(_) => todo!(),
             OpMessage::PaxosMsg(_) => todo!(),
             OpMessage::HeartbeatMessage(_) => todo!(),
@@ -330,6 +375,7 @@ impl ToFromFrame for AcceptSync<KeyValue, ()> {
 
 impl ToFromFrame for FirstAccept {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("firstaccept");
         self.n.to_frame(frame)
     }
 
@@ -346,6 +392,7 @@ impl ToFromFrame for FirstAccept {
 
 impl ToFromFrame for AcceptDecide<KeyValue> {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("acceptdecide");
         self.n.to_frame(frame);
         frame.push_int(self.decided_idx);
         frame.push_int(self.entries.len().try_into().unwrap());
@@ -376,6 +423,7 @@ impl ToFromFrame for AcceptDecide<KeyValue> {
 
 impl ToFromFrame for Accepted {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("accepted");
         self.n.to_frame(frame);
         frame.push_int(self.accepted_idx);
         frame
@@ -391,9 +439,171 @@ impl ToFromFrame for Accepted {
     }
 }
 
+impl ToFromFrame for Decide {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("decide");
+        self.n.to_frame(frame);
+        frame.push_int(self.decided_idx);
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = parse_ballot(parse)?;
+        let decided_idx = parse.next_int()?;
+        Ok(OpMessage::PaxosMsg(PaxosMsg::Decide(Decide {
+            n,
+            decided_idx,
+        })))
+    }
+}
+
+impl ToFromFrame for Compaction {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        match self {
+            Compaction::Trim(m) => {
+                frame.push_string("trim");
+                frame.push_int(*m);
+            }
+            Compaction::Snapshot(m) => {
+                frame.push_string("snapshot");
+                if m.is_some() {
+                    frame.push_int(1);
+                    frame.push_int(m.unwrap());
+                } else {
+                    frame.push_int(0);
+                }
+            }
+        }
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        match &(parse.next_string()?)[..] {
+            "trim" => Ok(OpMessage::PaxosMsg(PaxosMsg::Compaction(Compaction::Trim(
+                parse.next_int()?,
+            )))),
+            "snapshot" => Ok(OpMessage::PaxosMsg(PaxosMsg::Compaction(
+                Compaction::Snapshot(Some(parse.next_int()?)),
+            ))),
+            _ => panic!("invalid compaction type"),
+        }
+    }
+}
+
+impl ToFromFrame for AcceptStopSign {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("acceptstopsign");
+        self.n.to_frame(frame);
+        self.ss.to_frame(frame);
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = parse_ballot(parse)?;
+        let ss = parse_stopsign(parse)?;
+        Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptStopSign(
+            AcceptStopSign { n, ss },
+        )))
+    }
+}
+
+impl ToFromFrame for AcceptedStopSign {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("acceptedstopsign");
+        self.n.to_frame(frame);
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = parse_ballot(parse)?;
+        Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptedStopSign(
+            AcceptedStopSign { n },
+        )))
+    }
+}
+
+impl ToFromFrame for DecideStopSign {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("decidestopsign");
+        self.n.to_frame(frame);
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let n = parse_ballot(parse)?;
+        Ok(OpMessage::PaxosMsg(PaxosMsg::DecideStopSign(
+            DecideStopSign { n },
+        )))
+    }
+}
+
+impl ToFromFrame for HeartbeatMsg {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        match self {
+            HeartbeatMsg::Request(m) => m.to_frame(frame),
+            HeartbeatMsg::Reply(m) => m.to_frame(frame),
+        };
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let msg_type = parse.next_string()?;
+        match &msg_type[..] {
+            "request" => HeartbeatRequest::parse_frame(parse),
+            "reply" => HeartbeatReply::parse_frame(parse),
+            _ => panic!("invalid heartbeatmsg"),
+        }
+    }
+}
+
+impl ToFromFrame for HeartbeatRequest {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("request");
+        frame.push_int(self.round.into());
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let round = parse.next_int()?.try_into().unwrap();
+        Ok(OpMessage::HeartbeatMessage(HeartbeatMsg::Request(
+            HeartbeatRequest { round },
+        )))
+    }
+}
+
+impl ToFromFrame for HeartbeatReply {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_string("reply");
+        frame.push_int(self.round.into());
+        self.ballot.to_frame(frame);
+        frame.push_int(self.quorum_connected as u64);
+        frame
+    }
+
+    fn parse_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let round = parse.next_int()?.try_into().unwrap();
+        let ballot = parse_ballot(parse)?;
+        let quorum_connected = if parse.next_int()? == 1 { true } else { false };
+        Ok(OpMessage::HeartbeatMessage(HeartbeatMsg::Reply(
+            HeartbeatReply {
+                round,
+                ballot,
+                quorum_connected,
+            },
+        )))
+    }
+}
+
 fn parse_ballot(parse: &mut Parse) -> crate::cli::Result<Ballot> {
     match Ballot::parse_frame(parse)? {
         OpMessage::Ballot(m) => Ok(m),
+        _ => panic!(),
+    }
+}
+
+fn parse_stopsign(parse: &mut Parse) -> crate::cli::Result<StopSign> {
+    match StopSign::parse_frame(parse)? {
+        OpMessage::StopSign(m) => Ok(m.unwrap()),
         _ => panic!(),
     }
 }

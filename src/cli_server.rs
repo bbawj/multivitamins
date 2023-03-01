@@ -1,4 +1,7 @@
 use tokio::net::{TcpListener, TcpStream};
+use crate::op_server::Node;
+
+use std::collections::HashMap;
 
 use crate::{
     cli::{command::Command, connection::Connection, get::Get, COMMAND_LISTENER_PORT, Result, response::Response},
@@ -9,11 +12,11 @@ use crate::DEFAULT_ADDR;
 
 pub struct CliServer {
     // list of ports of our op servers
-    topology: Vec<u64>,
+    topology: HashMap<u64, Node>,
 }
 
 impl CliServer {
-    pub fn new(topology: Vec<u64>) -> CliServer {
+    pub fn new(topology: HashMap<u64, Node>) -> CliServer {
         CliServer { topology }
     }
 

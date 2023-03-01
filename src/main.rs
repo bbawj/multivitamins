@@ -42,25 +42,24 @@ async fn main() {
 
     // Create a mapping of peer IDs (1, 2, ..., n) to Node
     let mut topology: HashMap<u64, Node> = HashMap::new();
-    for idx in 1..num_nodes_total + 1 {
+    for idx in 0..num_nodes_total {
         if (idx as u64) != my_pid {
-            topology.insert(idx as u64, all_nodes[idx].clone());
+            topology.insert((idx+1) as u64, all_nodes[idx].clone());
         }
-        
     }
 
     // For each node in the cluster, if the ip_address is localhost,
     // then spawn a new thread and run the node on that thread.
     for (pid, node) in topology.clone() {
 
-        if node.ip_address != String::from("localhost") {
+        if node.ip_address != String::from(DEFAULT_ADDR) {
             continue;
         }
 
         // Spawn thread to run the node: we need the port, the OmniPaxosConfig, and the topology
 
         // Basically, if there are n nodes, and this node's PID is 3, then peers == [1, 2, 4, 5, ..., n]
-        let mut peers: Vec<u64> = (1..=(num_nodes_total+1) as u64).collect();
+        let mut peers: Vec<u64> = (1..(num_nodes_total+1) as u64).collect();
         peers.retain(|&x| x != pid);
 
         // Create a new OmniPaxosConfig instance with the given configuration
@@ -76,7 +75,7 @@ async fn main() {
 
 
         // Create a new OmniPaxos instance with the OmniPaxosConfig
-        let mut op_server = OmniPaxosServer::new(pid, node.port, op_config, topology.clone());
+        let mut op_server = OmniPaxosServer::new(op_config, pid, topology.clone()).await;
         // Spawn a new thread to run the node
         tokio::spawn(async move {
             op_server.run().await;
@@ -88,7 +87,7 @@ async fn main() {
     //     let cli_server = CliServer::new(SERVER_PORTS.to_vec());
     //     cli_server.listen().await;
     // });
-    let cli_server = CliServer::new(SERVER_PORTS.to_vec());
+    let cli_server = CliServer::new(topology.clone());
     cli_server.listen().await;
 
     // spawn op_servers

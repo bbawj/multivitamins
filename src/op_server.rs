@@ -73,7 +73,7 @@ pub struct OmniPaxosServer {
 impl OmniPaxosServer {
 
     // Create a new OmniPaxos server.
-    pub fn new(pid: u64, port: u64, config: OmniPaxosConfig, topology: HashMap<u64, &Node>) -> Self {
+    pub fn new(pid: u64, port: u64, config: OmniPaxosConfig, topology: HashMap<u64, Node>) -> Self {
 
         // Set up the OmniPaxos instance.
         let omni_paxos: Arc<Mutex<OmniPaxosKV>> =            

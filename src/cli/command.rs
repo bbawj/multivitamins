@@ -1,13 +1,13 @@
 use omnipaxos_core::messages::Message;
 
-use crate::op_server::KeyValue;
+use crate::op_server::{KeyValue, KeyValueSnapshot};
 
 use super::{frame::Frame, get::Get, op_message::OpMessage, parse::Parse, response::Response};
 
 pub enum Command {
     Get(Get),
     Response(Response),
-    OpMessage(Message<KeyValue, ()>),
+    OpMessage(Message<KeyValue, KeyValueSnapshot>),
 }
 
 impl Command {

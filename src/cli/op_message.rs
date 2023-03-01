@@ -11,13 +11,13 @@ use omnipaxos_core::{
     storage::StopSign,
 };
 
-use crate::op_server::KeyValue;
+use crate::op_server::{KeyValue, KeyValueSnapshot};
 
 use super::{frame::Frame, parse::Parse};
 
 pub enum OpMessage {
-    SequencePaxos(PaxosMessage<KeyValue, ()>),
-    PaxosMsg(PaxosMsg<KeyValue, ()>),
+    SequencePaxos(PaxosMessage<KeyValue, KeyValueSnapshot>),
+    PaxosMsg(PaxosMsg<KeyValue, KeyValueSnapshot>),
     BLEMessage(BLEMessage),
     HeartbeatMessage(HeartbeatMsg),
     KeyValue(KeyValue),
@@ -104,7 +104,7 @@ impl OpMessage {
             _ => panic!("OpMessage to_frame should only ever take in Message struct"),
         }
     }
-    pub(crate) fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, ()>> {
+    pub(crate) fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, KeyValueSnapshot>> {
         let message_type = parse.next_string()?.to_lowercase();
         let from = parse.next_int()?;
         let to = parse.next_int()?;
@@ -386,7 +386,7 @@ impl ToFromFrame for StopSign {
     }
 }
 
-impl ToFromFrame for Promise<KeyValue, ()> {
+impl ToFromFrame for Promise<KeyValue, KeyValueSnapshot> {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
         frame.push_string("promise");
         self.n.to_frame(frame);
@@ -472,7 +472,7 @@ impl ToFromFrame for Prepare {
     }
 }
 
-impl ToFromFrame for AcceptSync<KeyValue, ()> {
+impl ToFromFrame for AcceptSync<KeyValue, KeyValueSnapshot> {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
         frame.push_string("promise");
         self.n.to_frame(frame);

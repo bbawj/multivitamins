@@ -17,7 +17,7 @@ impl CliServer {
         CliServer { topology }
     }
 
-    pub async fn listen(&self) -> Result<() >{
+    pub async fn listen(&self) -> Result<()> {
         let address = String::from(DEFAULT_ADDR);
         let port = COMMAND_LISTENER_PORT;
         let listener = TcpListener::bind(format!("{}:{}", address, port)).await.unwrap();
@@ -51,7 +51,7 @@ impl CliServer {
 
                     println!("Get command received with key: {}", v.key());
                     let response = Response::new("hello".to_string(), 1);
-                    let response_frame = response.into_frame();
+                    let response_frame = response.to_frame();
                     let response_frame_copy = response_frame.clone();
                     let response_cmd = Command::from_frame(response_frame).expect("");
                     // forward response to cli_client

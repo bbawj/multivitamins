@@ -23,7 +23,7 @@ async fn main() {
             key = sub_matches.get_one::<String>("KEY").expect("get command; key was not a string");
             println!("Key requested is {}", key);
             let get_cmd = Get::new(key.to_string());
-            frame = get_cmd.into_frame();
+            frame = get_cmd.to_frame();
         },
        // Some(("put", sub_matches)) => {
        //      key = sub_matches.get_one::<String>("KEY").expect("get command; key was not a string");

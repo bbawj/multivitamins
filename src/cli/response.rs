@@ -21,7 +21,7 @@ impl Response {
         let value = parse.next_int()?;
         Ok(Response { key, value })
     }
-    pub fn into_frame(self) -> Frame {
+    pub fn to_frame(self) -> Frame {
         let mut frame = Frame::array();
         frame.push_string("response");
         frame.push_string(&self.key);

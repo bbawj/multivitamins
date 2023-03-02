@@ -78,7 +78,7 @@ async fn main() {
         let mut op_server = OmniPaxosServer::new(op_config, pid, topology.clone()).await;
         // Spawn a new thread to run the node
         tokio::spawn(async move {
-            op_server.run().await;
+            multivitamins::op_server::run(op_server);
         });
     }
 

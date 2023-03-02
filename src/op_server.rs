@@ -4,28 +4,18 @@ use omnipaxos_core::storage::Snapshot;
 use omnipaxos_core::util::NodeId;
 use omnipaxos_storage::memory_storage::MemoryStorage;
 use tokio::runtime::Runtime;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::{time, task};
+use tokio::sync::{MutexGuard};
+
+
 use crate::cli::Result;
 use crate::cli::command::Command;
 use crate::cli::connection::Connection;
 use crate::cli::op_message::OpMessage;
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::{time, join, task};
-
-
-use crate::DEFAULT_ADDR;
-
-// Represents a node in the cluster. Contains enough information for two nodes to communicate with each other.
-// To spawn nodes locally, which you can use for testing with threads, use localhost as ip_address.
-#[derive(Clone, Debug)] // Clone and Debug are required traits.
-pub struct Node {
-    pub ip_address: String,
-    pub port: u64,
-}
 
 
 #[derive(Clone, Debug)] // Clone and Debug are required traits.
@@ -69,10 +59,9 @@ pub type OmniPaxosKV = OmniPaxos<KeyValue, KeyValueSnapshot, MemoryStorage<KeyVa
 
 pub struct OmniPaxosServer {
     pub pid: u64,  // The id of this server.
-    pub ip_addr: String,  // The ip address that this server is listening on (technically can be retrieved from topology using pid)
-    pub port: u64,  // The port that this server is listening on (technically can be retrieved from topology using pid)
+    pub socket_addr: String,  // The socket address (ip_address:port) of this server (which is also topology[pid])
     pub omni_paxos: Arc<Mutex<OmniPaxosKV>>,  // The OmniPaxos instance that this server is running.
-    pub topology: HashMap<u64, Node>,  // The topology of the cluster, mapping node ids to ports.
+    pub topology: HashMap<u64, String>,  // The topology of the cluster, mapping node ids to ports.
     pub connections: HashMap<u64, TcpStream>,  // The TCP connections to other nodes in the cluster.
     pub listener: TcpListener,  // The listener for incoming messages.
 }
@@ -80,65 +69,67 @@ pub struct OmniPaxosServer {
 // Our implementation of an OmniPaxos server, that listens for incoming messages from a TCP socket.
 impl OmniPaxosServer {
 
-    // Create a new OmniPaxos server.
-    pub async fn new(config: OmniPaxosConfig, pid: u64, topology: HashMap<u64, Node>) -> Self {
+    // Create a new OmniPaxos server, by passing the configuration id, the topology of the cluster, and the id of this node.
+    // topology[pid] should return the "socket" (ip_address:port) of this node.
+    // pub async fn new(configuration_id: u32, topology: HashMap<u64, Node>, pid: u64) -> Self {
+
+    pub async fn new(configuration_id: u32, topology: HashMap<u64, String>, pid: u64) -> Self {
+
+        let num_nodes_total = topology.len() as u64;
+
+        // Basically, if there are n nodes, and this node's PID is 3, then peers == [1, 2, 4, 5, ..., n]
+        let mut peers: Vec<u64> = (1..(num_nodes_total+1) as u64).collect();
+        peers.retain(|&x| x != pid);
+
+        // Create a new OmniPaxosConfig instance with the given configuration
+        let omnipaxos_config = OmniPaxosConfig {
+            configuration_id,
+            pid,
+            peers,
+            ..Default::default()
+        };
 
         // Set up the OmniPaxos instance.
         let omni_paxos: Arc<Mutex<OmniPaxosKV>> =            
-            Arc::new(Mutex::new(config.build(MemoryStorage::default())));
+            Arc::new(Mutex::new(omnipaxos_config.build(MemoryStorage::default())));
+
+        // =================== The OmniPaxos instance is now set up. ===================
+
+
+        // =================== Now we set up the TCP connections. ===================
 
         // Create a listener for incoming messages.
-        let ip_addr = topology.clone().get(&pid).unwrap().ip_address.clone();
-        let port = topology.clone().get(&pid).unwrap().port.clone();
-        let listener = TcpListener::bind(format!("{}:{}", ip_addr, port)).await.unwrap();
-    
-    
+        let socket_addr = topology.get(&pid).unwrap().clone();
+        let listener = TcpListener::bind(&socket_addr).await.unwrap();
+
         // Set up the TCP connections in the run method.
-        let mut connections = HashMap::new();
+        let connections = HashMap::new();
         
-        
-        Self { pid, ip_addr, port, omni_paxos, topology, connections, listener }
+        Self { pid, socket_addr, omni_paxos, topology, connections, listener }
     }
 
     // Set up outgoing TCP connections.
     pub async fn setup_outgoing_connections(&mut self) {
-        for (node_id, node) in &self.topology { 
+        for (node_id, socket_addr) in &self.topology { 
             if *node_id == self.pid {
                 continue;
             }
-            println!("Connecting from node {} to node {}", self.pid, node_id);
-            let socket = TcpStream::connect(format!("{}:{}", node.ip_address, node.port)).await.unwrap();
+            println!("[OPServer {}] Connecting from node {} to node {}", self.socket_addr, self.pid, node_id);
+            let stream = TcpStream::connect(&socket_addr).await.unwrap();
 
             // Add the connection to the connections map.
-            self.connections.insert(*node_id, socket);
+            self.connections.insert(*node_id, stream);
         }
     }
-
-
-
-    // The main method that runs the server.
-    // pub async fn run(&mut self) {
-    //
-    //     // Todo: call self.listen(), self.send_outgoing_msgs_periodically(), and self.setup_outgoing_connections()
-    //     // Idea would be to have the first two be executed on separate threads
-    //
-    //     self.listen();
-    //     println!("listening");
-    //     self.send_outgoing_msgs_periodically();
-    //     println!("will send");
-    //     self.setup_outgoing_connections().await;
-    //     println!("setup");
-    //
-    // }
 
 }
 
 // Method that handles incoming messages, that gets called by the listen method,
 // in a separate thread, when a new message is received.
-async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, socket: TcpStream) -> Result<()> {
-
+async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: &mut TcpStream) -> Result<()> {
+    
     // Read the incoming message from the socket.
-    let mut connection = Connection::new(socket);
+    let mut connection = Connection::new(stream);
     let maybe_frame = connection.read_frame().await.unwrap();
     let frame= match maybe_frame {
         Some(frame) => frame,
@@ -146,7 +137,7 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, socket:
     };
 
     // Handle the incoming message.
-    println!("Received frame: {:?}", frame);
+    println!("[OPServer] Received frame: {:?}", frame);
     // let cmd = Command::from_frame(frame)?;
     // match cmd {
     //     Command::OpMessage(m) => {
@@ -163,11 +154,14 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, socket:
 async fn listen(op: &Arc<tokio::sync::Mutex<OmniPaxosServer>>) {
     loop {
         let server = op.lock().await;
-        let (stream, addr) = server.listener.accept().await.unwrap();
-        println!("Received connection from {}", addr);
+        let (mut stream, addr) = server.listener.accept().await.unwrap();
+        println!("[OPServer {}] Received connection from {}", op.lock().await.socket_addr, addr);
         let omni_paxos = Arc::clone(&op.lock().await.omni_paxos);
         tokio::spawn(async move {
-            process_incoming_messages(&omni_paxos, stream).await.unwrap();
+            process_incoming_messages(
+                &omni_paxos, 
+                &mut stream
+            ).await.unwrap();
         });
     }
 }
@@ -178,23 +172,20 @@ async fn send_outgoing_msgs_periodically(op: &Arc<tokio::sync::Mutex<OmniPaxosSe
     let mut outgoing_interval = time::interval(Duration::from_millis(1));
     loop {
         outgoing_interval.tick().await;  // Wait for this duration
+        let mut op_obj: MutexGuard<OmniPaxosServer> = op.lock().await;
 
-        let messages = op.lock().await.omni_paxos.lock().unwrap().outgoing_messages();
+        let messages = op_obj.omni_paxos.lock().unwrap().outgoing_messages();
         for msg in messages {
-            let receiver = msg.get_receiver();
 
-            // TODO: get the socket for the receiver. Currently, Connection takes in a TcpStream,
-            // but we want to pass it a reference to a TcpStream.
-            // let socket = &self.connections[&receiver];
-            let ip_address = &op.lock().await.topology[&receiver].ip_address;
-            let port = op.lock().await.topology[&receiver].port;
-            let socket = TcpStream::connect(format!("{ip_address}:{port}")).await.unwrap();
+            let receiver = msg.get_receiver();
+            let stream = op_obj.connections.get_mut(&receiver).unwrap();
 
             // Send message through socket
             match msg {
                 SequencePaxos(m) => {
                     let frame = OpMessage::SequencePaxos(m).to_frame();
-                    let mut connection = Connection::new(socket);
+                    println!("[OPServer] Sending frame: {:?}", frame);
+                    let mut connection = Connection::new(stream);
                     connection.write_frame(&frame).await.unwrap();
                 }
                 BLE(m) => todo!()

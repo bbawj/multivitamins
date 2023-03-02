@@ -22,6 +22,7 @@ pub enum Error {
     Other(crate::cli::Error),
 }
 
+// An abstraction over the data that is sent over the network.
 impl Frame {
     /// Returns an empty array
     pub(crate) fn array() -> Frame {

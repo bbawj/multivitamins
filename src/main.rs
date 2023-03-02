@@ -1,5 +1,5 @@
 use multivitamins::{DEFAULT_ADDR, SERVER_PORTS, CliServer};
-use multivitamins::op_server::{OmniPaxosServer, Node};
+use multivitamins::op_server::{OmniPaxosServer};
 use omnipaxos_core::omni_paxos::{OmniPaxos, OmniPaxosConfig};
 use omnipaxos_storage::memory_storage::MemoryStorage;
 use tokio::net::TcpListener;
@@ -9,122 +9,49 @@ use std::sync::{Arc, Mutex};
 
 
 #[tokio::main]
+
+// This file does two things:
+// 1. To simulate a cluster, it spawns a new thread for each node in the cluster, and runs the node on that thread.
+// 2. It starts the CLI server, which is used to send commands to the cluster.
+// In reality, the nodes would be running on different machines, and the CLI server would be running on a separate machine.
 async fn main() {
 
-    println!("Hello, world!");
 
     // configuration with id 1 and the following cluster
     // TODO: bring this out into a config file
-    let configuration_id = 1;
-
-    // create the replica 2 in this cluster (other replica instances are created similarly with pid 1 and 3 on the other nodes)
-    // TODO: bring this out into a config file
-    let my_pid = 2;
-
-    // Vector of all the other nodes in the cluster
-    // TODO: dynamically create this from the config file
-    let all_nodes: Vec<Node> = vec![
-        Node {
-            ip_address: String::from(DEFAULT_ADDR),
-            port: 50000
-        },
-        Node {
-            ip_address: String::from(DEFAULT_ADDR),
-            port: 50001
-        },
-        Node {
-            ip_address: String::from(DEFAULT_ADDR),
-            port: 50002
-        },
-    ];
-
-    let num_nodes_total = all_nodes.len();
+    let configuration_id: u32 = 1;
 
     // Create a mapping of peer IDs (1, 2, ..., n) to Node
-    let mut topology: HashMap<u64, Node> = HashMap::new();
-    for idx in 0..num_nodes_total {
-        topology.insert((idx+1) as u64, all_nodes[idx].clone());
-    }
+    // TODO: dynamically create this from a config file
+    let mut topology: HashMap<u64, String> = HashMap::new();
+    topology.insert(1, format!("{}:{}", DEFAULT_ADDR, 50000));
+    topology.insert(2, format!("{}:{}", DEFAULT_ADDR, 50001));
+    // topology.insert(3, format!("{}:{}", DEFAULT_ADDR, 50002));
 
-    // For each node in the cluster, if the ip_address is localhost,
-    // then spawn a new thread and run the node on that thread.
+    // The main work that this function does.
+    spawn_local_nodes(configuration_id, topology.clone()).await;
+    spawn_cli_server(topology.clone()).await;
+
+}
+
+// Spawn a new thread for each node in the cluster, and run the node on that thread.
+async fn spawn_local_nodes(configuration_id: u32, topology: HashMap<u64, String>) {
     for (pid, node) in topology.clone() {
 
-        if node.ip_address != String::from(DEFAULT_ADDR) {
-            continue;
-        }
+        println!("[Main] Spawning node {} on {}", pid, node);
 
         // Spawn thread to run the node: we need the port, the OmniPaxosConfig, and the topology
+        let mut op_server = OmniPaxosServer::new(configuration_id, topology.clone(), pid).await;
 
-        // Basically, if there are n nodes, and this node's PID is 3, then peers == [1, 2, 4, 5, ..., n]
-        let mut peers: Vec<u64> = (1..(num_nodes_total+1) as u64).collect();
-        peers.retain(|&x| x != pid);
-
-        // Create a new OmniPaxosConfig instance with the given configuration
-        let op_config = OmniPaxosConfig {
-            configuration_id,
-            pid,
-            peers,
-            ..Default::default()
-        };
-
-        // // Make a copy of the topology to pass into the new OmniPaxos instance
-        // let topology_copy = topology;
-
-
-        // Create a new OmniPaxos instance with the OmniPaxosConfig
-        let mut op_server = OmniPaxosServer::new(op_config, pid, topology.clone()).await;
         // Spawn a new thread to run the node
         tokio::spawn(async move {
             multivitamins::op_server::run(op_server);
         });
     }
-
-    // spawn command listener
-    // tokio::spawn(async move {
-    //     let cli_server = CliServer::new(SERVER_PORTS.to_vec());
-    //     cli_server.listen().await;
-    // });
-    let cli_server = CliServer::new(topology.clone());
-    cli_server.listen().await;
-
-    // spawn op_servers
-    // for pid in SERVER_PORTS {
-    //     let peers = SERVER_PORTS.iter().filter(|&&p| p != pid).copied().collect();
-    //     let op_config = OmniPaxosConfig {
-    //         pid,
-    //         configuration_id,
-    //         peers,
-    //         ..Default::default()
-    //     };
-    //     let omni_paxos: Arc<Mutex<OmniPaxosKV>> =
-    //         Arc::new(Mutex::new(op_config.build(MemoryStorage::default())));
-    //     let mut op_server = OmniPaxosServer {
-    //         omni_paxos: Arc::clone(&omni_paxos),
-    //         incoming: receiver_channels.remove(&pid).unwrap(),
-    //         outgoing: sender_channels.clone(),
-    //     };
-    //     let join_handle = runtime.spawn({
-    //         async move {
-    //             op_server.run().await;
-    //         }
-    //     });
-    // }
 }
 
-// fn handle_connection(
-//     mut stream: TcpStream,
-//     mut omnipaxos: OmniPaxos<KeyValue, (), MemoryStorage<KeyValue, ()>>,
-// ) {
-//     let buf_reader = BufReader::new(&mut stream);
-//     let msg: Vec<_> = buf_reader
-//         .lines()
-//         .map(|result| result.unwrap())
-//         .take_while(|line| !line.is_empty())
-//         .collect();
-//
-//     omnipaxos.handle_incoming(msg);
-//
-//     println!("Request: {:#?}", http_request);
-// }
-//
+// Start the CLI server
+async fn spawn_cli_server(topology: HashMap<u64, String>) {
+    let cli_server = CliServer::new(topology.clone());
+    cli_server.listen().await;
+}

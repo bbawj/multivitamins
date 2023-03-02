@@ -2,10 +2,12 @@ pub mod command;
 pub mod connection;
 pub mod frame;
 pub mod get;
+pub mod put;
 pub mod op_message;
 pub mod parse;
 pub mod response;
 
+pub const COMMAND_LISTENER_ADDR: &str = "127.0.0.1";
 pub const COMMAND_LISTENER_PORT: &str = "60000";
 pub const DEFAULT_ADDR: &str = "127.0.0.1";
 

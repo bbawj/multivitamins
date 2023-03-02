@@ -1,73 +1,84 @@
 use tokio::net::{TcpListener, TcpStream};
-use crate::op_server::Node;
 
+use rand::Rng;
 use std::collections::HashMap;
 
 use crate::{
-    cli::{command::Command, connection::Connection, get::Get, COMMAND_LISTENER_PORT, Result, response::Response},
+    cli::{command::Command, connection::Connection, get::Get, put::Put, Result, response::Response,
+        COMMAND_LISTENER_PORT, COMMAND_LISTENER_ADDR},
 };
-
-use crate::DEFAULT_ADDR;
 
 
 pub struct CliServer {
-    // list of ports of our op servers
-    topology: HashMap<u64, Node>,
+
+    // Mapping of node id to Node
+    topology: HashMap<u64, String>,
 }
 
 impl CliServer {
-    pub fn new(topology: HashMap<u64, Node>) -> CliServer {
+
+    pub fn new(topology: HashMap<u64, String>) -> CliServer {
         CliServer { topology }
     }
 
     pub async fn listen(&self) -> Result<()> {
-        let address = String::from(DEFAULT_ADDR);
-        let port = COMMAND_LISTENER_PORT;
+
+        // Set up listener.
+        let address = String::from(COMMAND_LISTENER_ADDR);
+        let port = String::from(COMMAND_LISTENER_PORT);
         let listener = TcpListener::bind(format!("{}:{}", address, port)).await.unwrap();
+
+        println!("[CliServer] Listening for connections on port {}", port);
+
         loop {
-            let (incoming_socket, _) = listener.accept().await.unwrap();
-            println!("Accepted connection from {}", incoming_socket.peer_addr().unwrap());
-            let mut connection = Connection::new(incoming_socket);
-            let maybe_frame = connection.read_frame().await.unwrap();
+
+            // Accept a new incoming connection from a client.
+            let (mut cli_client_incoming_stream, _) = listener.accept().await.unwrap();
+            println!("[CliServer] Accepted connection from {}", cli_client_incoming_stream.peer_addr().unwrap());
+            let mut cli_client_connection = Connection::new(&mut cli_client_incoming_stream);
+
+            // Read the incoming message from the socket.
+            let maybe_frame = cli_client_connection.read_frame().await.unwrap();
             let frame = match maybe_frame {
                 Some(frame) => frame,
                 None => return Ok(()),
             };
             let inbound_frame = frame.clone();
+            println!("[CliServer] Received frame: {:?}", frame);
 
-            let cmd = Command::from_frame(frame).expect("");
-            match cmd {
-                Command::Get(v) => {
-                    // let key = v.key();
-                    // // connect to random op_server and request a read
-                    // // just connect to first one for now
-                    // let port = self.topology.get(0).expect("").to_string();
-                    // let socket = TcpStream::connect(format!("{}:{}", DEFAULT_ADDR, port)).await.unwrap();
-                    // let mut outbound_connection = Connection::new(socket);
-                    // outbound_connection.write_frame(&inbound_frame).await.unwrap();
-                    // // wait for response
-                    // let maybe_response_frame = outbound_connection.read_frame().await.unwrap();
-                    // let response_frame = match maybe_response_frame {
-                    //     Some(response_frame) => response_frame,
-                    //     None => return Ok(()),
-                    // };
+            // Connect to random server
+            let random_server_num = rand::thread_rng().gen_range(1..=self.topology.len()) as u64;
+            let rand_server_socket_addr = self.topology.get(&random_server_num).expect("").to_string();
+            let mut socket = TcpStream::connect(rand_server_socket_addr).await.unwrap();
+            let mut outbound_connection = Connection::new(&mut socket);
 
-                    println!("Get command received with key: {}", v.key());
-                    let response = Response::new("hello".to_string(), 1);
-                    let response_frame = response.to_frame();
-                    let response_frame_copy = response_frame.clone();
-                    let response_cmd = Command::from_frame(response_frame).expect("");
-                    // forward response to cli_client
-                    match response_cmd {
-                        Command::Response(r) => {
-                            connection.write_frame(&response_frame_copy).await.unwrap();
-                        }
-                        _ => panic!("should be response"),
-                    }
+            // Send request to op_server
+            outbound_connection.write_frame(&inbound_frame).await.unwrap();
+            println!("[CliServer] Forwarded frame to op_server node {}: {:?}", random_server_num, frame);
+
+            // Wait for response
+            let maybe_response_frame = outbound_connection.read_frame().await.unwrap();
+            let response_frame = match maybe_response_frame {
+                Some(response_frame) => response_frame,
+                None => return Ok(()),
+            };
+            println!("[CliServer] Received response frame from node {}: {:?}", random_server_num, response_frame);
+
+            // let key = v.key();
+            // println!("Get command received with key: {}", v.key());
+            // let response = Response::new("hello".to_string(), 1);
+            // let response_frame = response.to_frame();
+
+            // Forward response to cli_client
+            let response_frame_copy = response_frame.clone();
+            let response_cmd = Command::from_frame(response_frame).expect("");
+            match response_cmd {
+                Command::Response(r) => {
+                    cli_client_connection.write_frame(&response_frame_copy).await.unwrap();
                 }
-                _ => panic!("not supposed to get response yet"), // connect to designated op_server and request a write
+                _ => panic!("[CliServer] Should be response"),
             }
+            println!("[CliServer] Forwarded response frame to cli_client: {:?}", response_frame_copy);
         }
-        Ok(())
     }
 }

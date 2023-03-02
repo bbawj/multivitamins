@@ -1,20 +1,24 @@
-use std::io::{Cursor, self};
+use std::{io::{Cursor, self}, sync::Arc};
 
-use tokio::{net::TcpStream, io::{BufWriter, AsyncReadExt, AsyncWriteExt}};
+use tokio::{net::TcpStream, io::{BufWriter, AsyncReadExt, AsyncWriteExt}, sync::{MutexGuard}};
 use bytes::{Buf, BytesMut};
 use crate::cli::frame::Frame;
 
 #[derive(Debug)]
-pub struct Connection {
-    stream: BufWriter<TcpStream>,
+pub struct Connection<'a> {
+    stream: BufWriter<&'a mut TcpStream>,
     buffer: BytesMut,
 }
 
-impl Connection {
-    pub fn new(stream: TcpStream) -> Connection {
+// An abstraction over the TcpStream that is used to send and receive messages.
+impl Connection<'_> {
+
+    pub fn new(stream: &mut TcpStream) -> Connection {
+        let stream = BufWriter::new(stream);
+        let buffer = BytesMut::with_capacity(4096);
         Connection {
-            stream: BufWriter::new(stream),
-            buffer: BytesMut::with_capacity(4096),
+            stream,
+            buffer
         }
     }
 

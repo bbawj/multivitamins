@@ -152,6 +152,7 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
 
 // Private method that processes incoming messages.
 async fn listen(op: &Arc<tokio::sync::Mutex<OmniPaxosServer>>) {
+    println!("[OPServer {}] Begin listening for incoming messages", op.lock().await.socket_addr);
     loop {
         let server = op.lock().await;
         let (mut stream, addr) = server.listener.accept().await.unwrap();
@@ -195,7 +196,7 @@ async fn send_outgoing_msgs_periodically(op: &Arc<tokio::sync::Mutex<OmniPaxosSe
     }
 }
 
-pub fn run(op: OmniPaxosServer) {
+pub async fn run(op: OmniPaxosServer) {
     let op_lock = Arc::new(tokio::sync::Mutex::new(op));
 
     // Start the listener.
@@ -211,9 +212,6 @@ pub fn run(op: OmniPaxosServer) {
     });
 
     // Start the outgoing connections.
-    let op_lock_clone_3 = Arc::clone(&op_lock);
-    tokio::spawn(async move {
-        op_lock_clone_3.lock().await.setup_outgoing_connections().await;
-    });
+    op_lock.lock().await.setup_outgoing_connections().await;
 
 }

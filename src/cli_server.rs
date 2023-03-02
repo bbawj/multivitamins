@@ -49,12 +49,13 @@ impl CliServer {
             // Connect to random server
             let random_server_num = rand::thread_rng().gen_range(1..=self.topology.len()) as u64;
             let rand_server_socket_addr = self.topology.get(&random_server_num).expect("").to_string();
-            let mut socket = TcpStream::connect(rand_server_socket_addr).await.unwrap();
+            let mut socket = TcpStream::connect(&rand_server_socket_addr).await.unwrap();
             let mut outbound_connection = Connection::new(&mut socket);
+            println!("[CliServer] Connected to OPServer node {} at {}", random_server_num, rand_server_socket_addr);
 
             // Send request to op_server
             outbound_connection.write_frame(&inbound_frame).await.unwrap();
-            println!("[CliServer] Forwarded frame to op_server node {}: {:?}", random_server_num, frame);
+            println!("[CliServer] Forwarded frame to OPServer node {}: {:?}", random_server_num, frame);
 
             // Wait for response
             let maybe_response_frame = outbound_connection.read_frame().await.unwrap();

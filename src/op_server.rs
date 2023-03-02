@@ -206,12 +206,23 @@ async fn send_outgoing_msgs_periodically(op: &Arc<tokio::sync::Mutex<OmniPaxosSe
 
 pub fn run(op: OmniPaxosServer) {
     let op_lock = Arc::new(tokio::sync::Mutex::new(op));
+
+    // Start the listener.
     let op_lock_clone_1 = Arc::clone(&op_lock);
     tokio::spawn(async move {
         listen(&op_lock_clone_1).await;
     });
+
+    // Start the periodic sender.
     let op_lock_clone_2 = Arc::clone(&op_lock);
     tokio::spawn(async move {
         send_outgoing_msgs_periodically(&op_lock_clone_2).await;
     });
+
+    // Start the outgoing connections.
+    let op_lock_clone_3 = Arc::clone(&op_lock);
+    tokio::spawn(async move {
+        op_lock_clone_3.lock().await.setup_outgoing_connections().await;
+    });
+
 }

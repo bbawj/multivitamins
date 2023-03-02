@@ -43,9 +43,7 @@ async fn main() {
     // Create a mapping of peer IDs (1, 2, ..., n) to Node
     let mut topology: HashMap<u64, Node> = HashMap::new();
     for idx in 0..num_nodes_total {
-        if (idx as u64) != my_pid {
-            topology.insert((idx+1) as u64, all_nodes[idx].clone());
-        }
+        topology.insert((idx+1) as u64, all_nodes[idx].clone());
     }
 
     // For each node in the cluster, if the ip_address is localhost,

@@ -6,7 +6,7 @@ use bytes::Buf;
 #[derive(Clone, Debug)]
 pub enum Frame {
     Str(String),
-    // Error(String),
+    Error(String),
     Integer(u64),
     // Bulk(Bytes),
     // Null,

@@ -15,6 +15,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use crate::cli::Result;
 use crate::cli::command::Command;
 use crate::cli::connection::Connection;
+use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
 
@@ -123,11 +124,16 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
             Ok((mut stream, addr)) => {
                 let omni_paxos = Arc::clone(omni_paxos);
                 tokio::spawn(async move {
-                    process_incoming_messages(
+                    let res = process_incoming_messages(
                         &omni_paxos, 
                         &mut stream,
                         pid
-                    ).await.unwrap();
+                    ).await;
+
+                    // Brendan - code comes here but not sure why: something abt ur frames maybe
+                    if let Err(e) = res {
+                        println!("[OPServer {}] Error while processing incoming message: {:?}", pid, e);
+                    }
                 });
             },
             Err(e) => {}
@@ -153,35 +159,48 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
     let cmd = Command::from_frame(frame)?;
     match cmd {
         Command::OpMessage(m) => {
+            println!("[OPServer {}] Received OpMessage: {:?}", pid, m);
             omni_paxos.lock().await.handle_incoming(m);
             Ok(())
         },
         Command::Get(get_message) => {
-
+            println!("[OPServer {}] Received get message: {:?}", pid, get_message);
             // Retrieve all the values from the key-value store.
-            let log_entries = 
+            let maybe_log_entries = 
                 omni_paxos.lock().await
-                .read_decided_suffix(0)
-                .expect("Failed to read decided suffix");
+                .read_decided_suffix(0);
 
-            let mut kv_store = HashMap::new();
-            for ent in log_entries {
-                match ent {
-                    LogEntry::Decided(kv) => {
-                        kv_store.insert(kv.key, kv.val);
+            match maybe_log_entries {
+                Some(log_entries) => {
+                    let mut kv_store = HashMap::new();
+                    for ent in log_entries {
+                        match ent {
+                            LogEntry::Decided(kv) => {
+                                kv_store.insert(kv.key, kv.val);
+                            }
+                            _ => {}
+                        }
                     }
-                    _ => {}
-                }
-            }
 
-            let key = get_message.key();
-            let val = kv_store.get(key).unwrap();
-            let get_response = Response::new(key.to_string(), val.to_string());
-            let response_frame = get_response.to_frame();
-            connection.write_frame(&response_frame).await.unwrap();
-            Ok(())
+                    let key = get_message.key();
+                    // Brendan - temp implementation, need a response type for errors? im confused at frames and responses
+                    let val = kv_store.get(key).unwrap();  // Dangerous, if no key, then this will panic.
+                    let get_response = Response::new(key.to_string(), val.to_string());
+                    let response_frame = get_response.to_frame();
+                    connection.write_frame(&response_frame).await.unwrap();
+                    Ok(())
+                },
+                None => {
+                    // Brendan - same as above, need a response type for errors?
+                    let mut error_frame = Frame::array();
+                    error_frame.push_string("Error");
+                    connection.write_frame(&error_frame).await.unwrap();
+                    Ok(())
+                },
+            }
         },
         Command::Put(put_message) => {
+            println!("[OPServer {}] Received put message: {:?}", pid, put_message);
             let key = put_message.key();
             let val = put_message.val();
             let kv_to_store = KeyValue { key: key.to_string(), val: val.to_string() };

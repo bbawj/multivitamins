@@ -154,6 +154,12 @@ impl Connection<'_> {
                 self.stream.write_u8(b'-').await?;
                 self.write_decimal(*val).await?;
             }
+            Frame::Error(val) => {
+                // encode errors as -
+                self.stream.write_u8(b'-').await?;
+                self.stream.write_all(val.as_bytes()).await?;
+                self.stream.write_all(b"\r\n").await?;
+            }
             // we are writing bytes based on an array, there cant be arrays to write
             Frame::Array(_) => unreachable!()
         }

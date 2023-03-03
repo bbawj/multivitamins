@@ -152,12 +152,13 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
 
 // Private method that processes incoming messages.
 async fn listen(op: &Arc<tokio::sync::Mutex<OmniPaxosServer>>) {
-    println!("[OPServer {}] Begin listening for incoming messages", op.lock().await.socket_addr);
+    let mut wait_interval = time::interval(Duration::from_millis(1));
+    let mut server: MutexGuard<OmniPaxosServer> = op.lock().await;
+    println!("[OPServer {}] Begin listening for incoming messages", server.socket_addr);
     loop {
-        let server = op.lock().await;
         let (mut stream, addr) = server.listener.accept().await.unwrap();
-        println!("[OPServer {}] Received connection from {}", op.lock().await.socket_addr, addr);
-        let omni_paxos = Arc::clone(&op.lock().await.omni_paxos);
+        println!("[OPServer {}] Received connection from {}", server.socket_addr, addr);
+        let omni_paxos = Arc::clone(&server.omni_paxos);
         tokio::spawn(async move {
             process_incoming_messages(
                 &omni_paxos, 
@@ -167,13 +168,15 @@ async fn listen(op: &Arc<tokio::sync::Mutex<OmniPaxosServer>>) {
     }
 }
 
-// Method that sends outgoing messages - to be called periodically.
+// Method that periodically takes outgoing messages from the OmniPaxos instance, and sends them to the appropriate node.
 async fn send_outgoing_msgs_periodically(op: &Arc<tokio::sync::Mutex<OmniPaxosServer>>) {
 
     let mut outgoing_interval = time::interval(Duration::from_millis(1));
     loop {
-        outgoing_interval.tick().await;  // Wait for this duration
+        outgoing_interval.tick().await;
+        println!("[OPServer] Trying to acquire lock to send outgoing messages");
         let mut op_obj: MutexGuard<OmniPaxosServer> = op.lock().await;
+        println!("[OPServer {}] Trying to send outgoing messages", &(op_obj.socket_addr));
 
         let messages = op_obj.omni_paxos.lock().unwrap().outgoing_messages();
         for msg in messages {
@@ -193,6 +196,7 @@ async fn send_outgoing_msgs_periodically(op: &Arc<tokio::sync::Mutex<OmniPaxosSe
             }
 
         }
+    
     }
 }
 

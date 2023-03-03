@@ -307,14 +307,16 @@ trait ToFromFrame {
 impl ToFromFrame for KeyValue {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
         frame.push_string(&self.key);
-        frame.push_int(self.value);
+        frame.push_string(&self.val);
+        // frame.push_int(self.value);
         frame
     }
 
     fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let key = parse.next_string()?;
-        let value = parse.next_int()?;
-        Ok(OpMessage::KeyValue(KeyValue { key, value }))
+        let val = parse.next_string()?;
+        // let value = parse.next_int()?;
+        Ok(OpMessage::KeyValue(KeyValue { key, val }))
     }
 }
 

@@ -45,7 +45,7 @@ async fn spawn_local_nodes(configuration_id: u32, topology: HashMap<u64, String>
 
         // Spawn a new thread to run the node
         tokio::spawn(async move {
-            multivitamins::op_server::run(op_server).await;
+            multivitamins::op_server::run(pid, op_server).await;
         });
     }
 }

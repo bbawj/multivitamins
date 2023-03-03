@@ -130,7 +130,6 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
                         pid
                     ).await;
 
-                    // Brendan - code comes here but not sure why: something abt ur frames maybe
                     if let Err(e) = res {
                         println!("[OPServer {}] Error while processing incoming message: {:?}", pid, e);
                     }

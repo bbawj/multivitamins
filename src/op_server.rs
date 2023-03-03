@@ -100,7 +100,9 @@ impl OmniPaxosServer {
 
         // Create a listener for incoming messages.
         let socket_addr = topology.get(&pid).unwrap().clone();
-        let listener = TcpListener::bind(&socket_addr).await.unwrap();
+        let std_listener = std::net::TcpListener::bind(&socket_addr).expect("Failed to bind");
+        std_listener.set_nonblocking(true).expect("Failed to initialize non-blocking");
+        let listener = TcpListener::from_std(std_listener).expect("Failed to convert to async");
 
         // Set up the TCP connections in the run method.
         let connections = HashMap::new();
@@ -152,19 +154,27 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
 
 // Private method that processes incoming messages.
 async fn listen(op: &Arc<tokio::sync::Mutex<OmniPaxosServer>>) {
-    let mut wait_interval = time::interval(Duration::from_millis(1));
-    let mut server: MutexGuard<OmniPaxosServer> = op.lock().await;
-    println!("[OPServer {}] Begin listening for incoming messages", server.socket_addr);
+    
+    let mut outgoing_interval = time::interval(Duration::from_millis(1));
+    // println!("[OPServer {}] Begin listening for incoming messages", server.socket_addr);
+
     loop {
-        let (mut stream, addr) = server.listener.accept().await.unwrap();
-        println!("[OPServer {}] Received connection from {}", server.socket_addr, addr);
-        let omni_paxos = Arc::clone(&server.omni_paxos);
-        tokio::spawn(async move {
-            process_incoming_messages(
-                &omni_paxos, 
-                &mut stream
-            ).await.unwrap();
-        });
+        outgoing_interval.tick().await;
+        println!("[OPServer] Trying to acquire lock to listen for incoming messages");
+        let op_obj: MutexGuard<OmniPaxosServer> = op.lock().await;
+        match op_obj.listener.accept().await {
+            Ok((mut stream, addr)) => {
+                println!("[OPServer {}] Received connection from {}", op_obj.socket_addr, addr);
+                let omni_paxos = Arc::clone(&op_obj.omni_paxos);
+                tokio::spawn(async move {
+                    process_incoming_messages(
+                        &omni_paxos, 
+                        &mut stream
+                    ).await.unwrap();
+                });
+            },
+            Err(e) => {}
+        }
     }
 }
 

@@ -30,6 +30,7 @@ impl OpMessage {
         let mut frame = Frame::array();
         match self {
             OpMessage::SequencePaxos(m) => {
+                frame.push_string("opmessage");
                 frame.push_int(m.from);
                 frame.push_int(m.to);
                 match &m.msg {
@@ -96,18 +97,21 @@ impl OpMessage {
                 }
             }
             OpMessage::BLEMessage(m) => {
+
+                frame.push_string("opmessage");
                 frame.push_int(m.from);
                 frame.push_int(m.to);
                 m.msg.to_frame(&mut frame);
                 frame
+
             }
             _ => panic!("OpMessage to_frame should only ever take in Message struct"),
         }
     }
     pub(crate) fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, KeyValueSnapshot>> {
-        let message_type = parse.next_string()?.to_lowercase();
         let from = parse.next_int()?;
         let to = parse.next_int()?;
+        let message_type = parse.next_string()?.to_lowercase();
         match &message_type[..] {
             "preparereq" => Ok(Message::SequencePaxos(PaxosMessage {
                 from,
@@ -271,7 +275,7 @@ impl OpMessage {
                 }))
             }
             "heartbeatrequest" => {
-                let msg = HeartbeatMsg::from_frame(parse)?;
+                let msg = HeartbeatRequest::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::HeartbeatMessage(HeartbeatMsg::Request(p)) => p,
                     _ => panic!("invalid message type"),
@@ -283,7 +287,7 @@ impl OpMessage {
                 }))
             }
             "heartbeatreply" => {
-                let msg = HeartbeatMsg::from_frame(parse)?;
+                let msg = HeartbeatReply::from_frame(parse)?;
                 let msg = match msg {
                     OpMessage::HeartbeatMessage(HeartbeatMsg::Reply(p)) => p,
                     _ => panic!("invalid message type"),
@@ -692,8 +696,8 @@ impl ToFromFrame for HeartbeatMsg {
     fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let msg_type = parse.next_string()?;
         match &msg_type[..] {
-            "request" => HeartbeatRequest::from_frame(parse),
-            "reply" => HeartbeatReply::from_frame(parse),
+            "heartbeatrequest" => HeartbeatRequest::from_frame(parse),
+            "heartbeatreply" => HeartbeatReply::from_frame(parse),
             _ => panic!("invalid heartbeatmsg"),
         }
     }
@@ -701,7 +705,7 @@ impl ToFromFrame for HeartbeatMsg {
 
 impl ToFromFrame for HeartbeatRequest {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
-        frame.push_string("request");
+        frame.push_string("heartbeatrequest");
         frame.push_int(self.round.into());
         frame
     }
@@ -716,7 +720,7 @@ impl ToFromFrame for HeartbeatRequest {
 
 impl ToFromFrame for HeartbeatReply {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
-        frame.push_string("reply");
+        frame.push_string("heartbeatreply");
         frame.push_int(self.round.into());
         self.ballot.to_frame(frame);
         frame.push_int(self.quorum_connected as u64);

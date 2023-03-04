@@ -9,8 +9,8 @@ impl Error {
     pub fn new(value: String) -> Error {
         Error { value }
     }
-    pub fn value(&self) -> String {
-        self.value
+    pub fn value(&self) -> &str {
+        &self.value
     }
     pub(crate) fn parse_frame(parse: &mut Parse) -> Result<Error> {
         Ok(Error {

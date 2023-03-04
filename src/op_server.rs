@@ -185,7 +185,6 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
                     }
 
                     let key = get_message.key();
-                    // Brendan - temp implementation, need a response type for errors? im confused at frames and responses
                     let val = kv_store.get(key);
                     let response_frame: Frame;
                     if val.is_none() {
@@ -198,7 +197,6 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
                     Ok(())
                 },
                 None => {
-                    // Brendan - same as above, need a response type for errors?
                     let error = format!("Log is empty");
                     let error_frame = Error::new(error).to_frame();
                     connection.write_frame(&error_frame).await.unwrap();

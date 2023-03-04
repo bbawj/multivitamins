@@ -1,5 +1,5 @@
 use multivitamins::{DEFAULT_ADDR, SERVER_PORTS, CliServer};
-use multivitamins::op_server::{OmniPaxosServer};
+use multivitamins::op_server::OmniPaxosServer;
 use std::collections::HashMap;
 
 

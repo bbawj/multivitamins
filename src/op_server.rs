@@ -1,15 +1,13 @@
 use omnipaxos_core::messages::Message::{BLE, SequencePaxos};
 use omnipaxos_core::omni_paxos::{OmniPaxosConfig, OmniPaxos};
 use omnipaxos_core::storage::Snapshot;
-use omnipaxos_core::util::{NodeId, LogEntry};
+use omnipaxos_core::util::LogEntry;
 use omnipaxos_storage::memory_storage::MemoryStorage;
-use tokio::runtime::Runtime;
 use std::collections::HashMap;
-use std::sync::{Arc};
-use std::time::Duration;
+use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::{time, task};
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::time;
+use tokio::sync::Mutex;
 
 
 use crate::cli::Result;
@@ -18,6 +16,7 @@ use crate::cli::connection::Connection;
 use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
+use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT};
 
 
 #[derive(Clone, Debug)] // Clone and Debug are required traits.
@@ -236,7 +235,7 @@ async fn send_outgoing_msgs_periodically(
     pid: u64
 ) {
 
-    let mut outgoing_interval = time::interval(Duration::from_millis(1));
+    let mut outgoing_interval = time::interval(OUTGOING_MESSAGES_TIMEOUT);
 
     // Store the connections in a mutable reference, so that we can modify it.
     let mut connections: HashMap<u64, TcpStream> = HashMap::new();
@@ -292,7 +291,7 @@ async fn send_outgoing_msgs_periodically(
 // Method that periodically takes outgoing messages from the OmniPaxos instance, and sends them to the appropriate node.
 async fn call_leader_election_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>) {
     
-    let mut election_interval = time::interval(Duration::from_millis(100));
+    let mut election_interval = time::interval(ELECTION_TIMEOUT);
     loop {
         election_interval.tick().await;
         omni_paxos.lock().await.election_timeout();

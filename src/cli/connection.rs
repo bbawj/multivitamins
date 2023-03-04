@@ -1,6 +1,6 @@
-use std::{io::{Cursor, self}, sync::Arc};
+use std::io::{Cursor, self};
 
-use tokio::{net::TcpStream, io::{BufWriter, AsyncReadExt, AsyncWriteExt}, sync::{MutexGuard}};
+use tokio::{net::TcpStream, io::{BufWriter, AsyncReadExt, AsyncWriteExt}};
 use bytes::{Buf, BytesMut};
 use crate::cli::frame::Frame;
 

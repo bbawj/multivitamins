@@ -1,6 +1,9 @@
 
 use clap::{arg, command, Command};
-use multivitamins::cli::{get::Get, put::Put, connection::Connection, COMMAND_LISTENER_PORT, DEFAULT_ADDR, command::Command as CliCommand};
+use multivitamins::cli::{
+    get::Get, put::Put,
+    connection::Connection, command::Command as CliCommand,
+    COMMAND_LISTENER_PORT, DEFAULT_ADDR};
 
 
 use tokio::net::TcpStream;

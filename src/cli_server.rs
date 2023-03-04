@@ -4,7 +4,7 @@ use rand::Rng;
 use std::collections::HashMap;
 
 use crate::{
-    cli::{command::Command, connection::Connection, get::Get, put::Put, Result, response::Response,
+    cli::{command::Command, connection::Connection, Result,
         COMMAND_LISTENER_PORT, COMMAND_LISTENER_ADDR},
 };
 

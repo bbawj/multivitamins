@@ -1,3 +1,4 @@
+
 use clap::{arg, command, Command};
 use multivitamins::cli::{get::Get, put::Put, connection::Connection, COMMAND_LISTENER_PORT, DEFAULT_ADDR, command::Command as CliCommand};
 
@@ -51,11 +52,20 @@ async fn main() {
     println!("[CliClient] Frame: {:?}", frame);
     println!("[CliClient] Sent frame to CliServer");
 
-    let response_frame = connection.read_frame().await.unwrap().unwrap();
-    let cmd = CliCommand::from_frame(response_frame).expect("[CliClient] Failed to read response");
-    match cmd {
-        CliCommand::Response(r) => print!("[CliClient] Key: {}, Value: {}", r.key(), r.value()),
-        _ => panic!("[CliClient] Incorrect command received")
+
+    let response_frame = connection.read_frame().await.unwrap();
+    match response_frame {
+        Some(response) => {
+            let cmd = CliCommand::from_frame(response).expect("[CliClient] Failed to read response");
+            match cmd {
+                CliCommand::Response(r) => println!("[CliClient] Key: {}, Value: {}", r.key(), r.value()),
+                _ => panic!("[CliClient] Incorrect command received")
+            }
+        }
+        None => {
+            println!("Sadge");
+        }
+
     }
-    
+
 }

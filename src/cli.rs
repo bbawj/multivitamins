@@ -1,10 +1,11 @@
 pub mod command;
 pub mod connection;
+pub mod error;
 pub mod frame;
 pub mod get;
-pub mod put;
 pub mod op_message;
 pub mod parse;
+pub mod put;
 pub mod response;
 
 pub const COMMAND_LISTENER_ADDR: &str = "127.0.0.1";

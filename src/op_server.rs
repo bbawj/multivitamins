@@ -15,6 +15,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use crate::cli::Result;
 use crate::cli::command::Command;
 use crate::cli::connection::Connection;
+use crate::cli::error::Error;
 use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
@@ -165,6 +166,8 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
         Command::Get(get_message) => {
             println!("[OPServer {}] Received get message: {:?}", pid, get_message);
             // Retrieve all the values from the key-value store.
+            // Maybe we can optimise this by locally tracking the idx we have updated to so far
+            // so that a get command does not involve creating a new hashmap
             let maybe_log_entries = 
                 omni_paxos.lock().await
                 .read_decided_suffix(0);
@@ -183,16 +186,21 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
 
                     let key = get_message.key();
                     // Brendan - temp implementation, need a response type for errors? im confused at frames and responses
-                    let val = kv_store.get(key).unwrap();  // Dangerous, if no key, then this will panic.
-                    let get_response = Response::new(key.to_string(), val.to_string());
-                    let response_frame = get_response.to_frame();
+                    let val = kv_store.get(key);
+                    let response_frame: Frame;
+                    if val.is_none() {
+                        let error = format!("Key: {} is not found", key);
+                        response_frame = Error::new(error).to_frame();
+                    } else {
+                        response_frame = Response::new(key.to_string(), val.cloned().unwrap()).to_frame();
+                    }
                     connection.write_frame(&response_frame).await.unwrap();
                     Ok(())
                 },
                 None => {
                     // Brendan - same as above, need a response type for errors?
-                    let mut error_frame = Frame::array();
-                    error_frame.push_string("Error");
+                    let error = format!("Log is empty");
+                    let error_frame = Error::new(error).to_frame();
                     connection.write_frame(&error_frame).await.unwrap();
                     Ok(())
                 },
@@ -210,6 +218,10 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
         },
         Command::Response(response_msg) => {
             println!("[OPServer {}] Received response: {:?}", pid, response_msg);
+            Ok(())
+        }
+        Command::Error(error_message) => {
+            println!("[OPServer {}] Received error: {:?}", pid, error_message);
             Ok(())
         }
     }

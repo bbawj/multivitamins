@@ -16,7 +16,7 @@ impl Get {
         let key = parse.next_string()?;
         Ok(Get { key })
     }
-    pub fn to_frame(self) -> Frame {
+    pub fn to_frame(&self) -> Frame {
         let mut frame = Frame::array();
         frame.push_string("get");
         frame.push_string(&self.key);

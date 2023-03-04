@@ -2,13 +2,17 @@ use omnipaxos_core::messages::Message;
 
 use crate::op_server::{KeyValue, KeyValueSnapshot};
 
-use super::{frame::Frame, get::Get, put::Put, op_message::OpMessage, parse::Parse, response::Response};
+use super::{
+    error::Error, frame::Frame, get::Get, op_message::OpMessage, parse::Parse, put::Put,
+    response::Response,
+};
 
 pub enum Command {
     Get(Get),
     Put(Put),
     Response(Response),
     OpMessage(Message<KeyValue, KeyValueSnapshot>),
+    Error(Error),
 }
 
 // An abstraction of a command for our key-value store that can be parsed from a frame.
@@ -22,6 +26,7 @@ impl Command {
             "put" => Command::Put(Put::parse_frame(&mut parse)?),
             "response" => Command::Response(Response::parse_frame(&mut parse)?),
             "opmessage" => Command::OpMessage(OpMessage::from_frame(&mut parse)?),
+            "error" => Command::Error(Error::parse_frame(&mut parse)?),
             _ => panic!("invalid command name provided"),
         };
 

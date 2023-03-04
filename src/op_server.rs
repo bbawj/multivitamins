@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use crate::cli::Result;
 use crate::cli::command::Command;
 use crate::cli::connection::Connection;
+use crate::cli::error::Error;
 use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
@@ -156,14 +157,13 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
     // Constantly tries to read
     loop {
 
+        // Handle the incoming message.
+        // println!("[OPServer {}] Received frame: {:?}\n", pid, frame);
         let maybe_frame = connection.read_frame().await.unwrap();
         let frame= match maybe_frame {
             Some(frame) => frame,
-            None => continue,
+            None => continue
         };
-    
-        // Handle the incoming message.
-        // println!("[OPServer {}] Received frame: {:?}\n", pid, frame);
         let cmd = Command::from_frame(frame)?;
         match cmd {
             Command::OpMessage(m) => {
@@ -173,7 +173,11 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
             },
             Command::Get(get_message) => {
                 println!("[OPServer {}] Received get message: {:?}", pid, get_message);
+                let key = get_message.key();
                 // Retrieve all the values from the key-value store.
+                // Maybe we can optimise this by locally tracking the idx we have updated to so far
+                // so that a get command does not involve creating a new hashmap
+
                 let maybe_log_entries = 
                     omni_paxos.lock().await
                     .read_decided_suffix(0);
@@ -189,40 +193,41 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                                 _ => {}
                             }
                         }
-    
-                        let key = get_message.key();
-                        // Brendan - temp implementation, need a response type for errors? im confused at frames and responses
-                        let val = kv_store.get(key).unwrap();  // Dangerous, if no key, then this will panic.
-                        let get_response = Response::new(key.to_string(), val.to_string());
-                        let response_frame = get_response.to_frame();
+
+                        let option_val = kv_store.get(key);
+                        let response_frame = match option_val {
+                            Some(val) => Response::new(key.to_string(), val.to_string()).to_frame(),
+                            None => Error::new(format!("Key: {} is not found", key)).to_frame(),
+                        };
                         connection.write_frame(&response_frame).await.unwrap();
-                        continue
+                        continue;
                     },
                     None => {
-                        // Brendan - same as above, need a response type for errors?
-                        let mut error_frame = Frame::array();
-                        error_frame.push_string("Error");
+                        let error = format!("Key: {} is not found", key);
+                        let error_frame = Error::new(error).to_frame();
                         connection.write_frame(&error_frame).await.unwrap();
-                        continue
+                        continue;
                     },
-                };
+                }
             },
             Command::Put(put_message) => {
                 println!("[OPServer {}] Received put message: {:?}", pid, put_message);
-                let key = put_message.key();
-                let val = put_message.val();
+                let (key, val) = (put_message.key(), put_message.val());
                 let kv_to_store = KeyValue { key: key.to_string(), val: val.to_string() };
-                let mut omni_paxos_harald = omni_paxos.lock().await;
-                omni_paxos_harald.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
+                omni_paxos.lock().await.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
                 let response_frame = Response::new(key.to_string(), val.to_string()).to_frame();
                 connection.write_frame(&response_frame).await.unwrap();
-                continue
+                continue;
             },
             Command::Response(response_msg) => {
                 println!("[OPServer {}] Received response: {:?}", pid, response_msg);
-                continue
+                continue;
             }
-        };
+            Command::Error(error_message) => {
+                println!("[OPServer {}] Received error: {:?}", pid, error_message);
+                continue;
+            }
+        }
     }
 
 }

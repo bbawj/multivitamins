@@ -44,7 +44,6 @@ impl CliServer {
                 None => return Ok(()),
             };
             let inbound_frame = frame.clone();
-            println!("[CliServer] Received frame: {:?}", frame);
 
             // Connect to random server
             let random_server_num = rand::thread_rng().gen_range(1..=self.topology.len()) as u64;

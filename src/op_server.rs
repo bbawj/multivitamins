@@ -119,13 +119,12 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
     println!("[OPServer {}] Begin listening for incoming messages", pid);
 
     loop {
-        println!("[OPServer {}] In loop, trying to listen to message", pid);
         match listener.accept().await {
             Ok((mut stream, addr)) => {
 
                 // Received a new connection from a client.
 
-                println!("[OPServer {}] Received message from {}", pid, addr);
+                println!("[OPServer {}] Received connection from {}", pid, addr);
                 let omni_paxos = Arc::clone(omni_paxos);
 
                 tokio::spawn(async move {

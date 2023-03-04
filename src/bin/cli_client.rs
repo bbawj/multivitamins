@@ -24,7 +24,6 @@ async fn main() {
     match matches.subcommand() {
         Some(("get", sub_matches)) => {
             key = sub_matches.get_one::<String>("KEY").expect("[CliClient] get command; key was not a string");
-            println!("Key requested is {}", key);
             let get_cmd = Get::new(key.to_string());
             frame = get_cmd.to_frame();
         },
@@ -45,12 +44,9 @@ async fn main() {
     let port = COMMAND_LISTENER_PORT;
     let mut socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
     let mut connection = Connection::new(&mut socket);
-    println!("[CliClient] Connected to CliServer");
 
     // send the frame to the server
     connection.write_frame(&frame).await.unwrap();
-    println!("[CliClient] Frame: {:?}", frame);
-    println!("[CliClient] Sent frame to CliServer");
 
 
     let response_frame = connection.read_frame().await.unwrap();

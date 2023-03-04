@@ -211,7 +211,8 @@ async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream:
             let key = put_message.key();
             let val = put_message.val();
             let kv_to_store = KeyValue { key: key.to_string(), val: val.to_string() };
-            omni_paxos.lock().await.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
+            let mut omni_paxos_harald = omni_paxos.lock().await;
+            omni_paxos_harald.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
             let response_frame = Response::new(key.to_string(), val.to_string()).to_frame();
             connection.write_frame(&response_frame).await.unwrap();
             Ok(())
@@ -244,6 +245,9 @@ async fn send_outgoing_msgs_periodically(
         outgoing_interval.tick().await;
         
         let messages = omni_paxos.lock().await.outgoing_messages();
+        if messages.len() > 0 {
+            println!("Num msgs: {}", messages.len());
+        }
 
         for msg in messages {
 

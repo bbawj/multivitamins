@@ -122,9 +122,14 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
         println!("[OPServer {}] In loop, trying to listen to message", pid);
         match listener.accept().await {
             Ok((mut stream, addr)) => {
+
+                // Received a new connection from a client.
+
+                println!("[OPServer {}] Received message from {}", pid, addr);
                 let omni_paxos = Arc::clone(omni_paxos);
+
                 tokio::spawn(async move {
-                    let res = process_incoming_messages(
+                    let res = process_incoming_connection(
                         &omni_paxos, 
                         &mut stream,
                         pid
@@ -135,85 +140,93 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
                     }
                 });
             },
-            Err(e) => {}
+            Err(e) => {
+                println!("[OPServer {}] Error while listening to message: {:?}", pid, e);
+            }
         }
     }
+
 }
 
 
 // Method that handles incoming messages, that gets called by the listen method,
 // in a separate thread, when a new message is received.
-async fn process_incoming_messages(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: &mut TcpStream, pid: u64) -> Result<()> {
+async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: &mut TcpStream, pid: u64) -> Result<()> {
     
-    // Read the incoming message from the socket.
     let mut connection = Connection::new(stream);
-    let maybe_frame = connection.read_frame().await.unwrap();
-    let frame= match maybe_frame {
-        Some(frame) => frame,
-        None => return Ok(()),
-    };
 
-    // Handle the incoming message.
-    println!("[OPServer {}] Received frame: {:?}", pid, frame);
-    let cmd = Command::from_frame(frame)?;
-    match cmd {
-        Command::OpMessage(m) => {
-            println!("[OPServer {}] Received OpMessage: {:?}", pid, m);
-            omni_paxos.lock().await.handle_incoming(m);
-            Ok(())
-        },
-        Command::Get(get_message) => {
-            println!("[OPServer {}] Received get message: {:?}", pid, get_message);
-            // Retrieve all the values from the key-value store.
-            let maybe_log_entries = 
-                omni_paxos.lock().await
-                .read_decided_suffix(0);
+    // Constantly tries to read
+    loop {
 
-            match maybe_log_entries {
-                Some(log_entries) => {
-                    let mut kv_store = HashMap::new();
-                    for ent in log_entries {
-                        match ent {
-                            LogEntry::Decided(kv) => {
-                                kv_store.insert(kv.key, kv.val);
+        let maybe_frame = connection.read_frame().await.unwrap();
+        let frame= match maybe_frame {
+            Some(frame) => frame,
+            None => continue,
+        };
+    
+        // Handle the incoming message.
+        // println!("[OPServer {}] Received frame: {:?}\n", pid, frame);
+        let cmd = Command::from_frame(frame)?;
+        match cmd {
+            Command::OpMessage(m) => {
+                // println!("[OPServer {}] Received OpMessage: {:?}\n", pid, m);
+                omni_paxos.lock().await.handle_incoming(m);
+                continue
+            },
+            Command::Get(get_message) => {
+                println!("[OPServer {}] Received get message: {:?}", pid, get_message);
+                // Retrieve all the values from the key-value store.
+                let maybe_log_entries = 
+                    omni_paxos.lock().await
+                    .read_decided_suffix(0);
+    
+                match maybe_log_entries {
+                    Some(log_entries) => {
+                        let mut kv_store = HashMap::new();
+                        for ent in log_entries {
+                            match ent {
+                                LogEntry::Decided(kv) => {
+                                    kv_store.insert(kv.key, kv.val);
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    }
-
-                    let key = get_message.key();
-                    // Brendan - temp implementation, need a response type for errors? im confused at frames and responses
-                    let val = kv_store.get(key).unwrap();  // Dangerous, if no key, then this will panic.
-                    let get_response = Response::new(key.to_string(), val.to_string());
-                    let response_frame = get_response.to_frame();
-                    connection.write_frame(&response_frame).await.unwrap();
-                    Ok(())
-                },
-                None => {
-                    // Brendan - same as above, need a response type for errors?
-                    let mut error_frame = Frame::array();
-                    error_frame.push_string("Error");
-                    connection.write_frame(&error_frame).await.unwrap();
-                    Ok(())
-                },
+    
+                        let key = get_message.key();
+                        // Brendan - temp implementation, need a response type for errors? im confused at frames and responses
+                        let val = kv_store.get(key).unwrap();  // Dangerous, if no key, then this will panic.
+                        let get_response = Response::new(key.to_string(), val.to_string());
+                        let response_frame = get_response.to_frame();
+                        connection.write_frame(&response_frame).await.unwrap();
+                        continue
+                    },
+                    None => {
+                        // Brendan - same as above, need a response type for errors?
+                        let mut error_frame = Frame::array();
+                        error_frame.push_string("Error");
+                        connection.write_frame(&error_frame).await.unwrap();
+                        continue
+                    },
+                };
+            },
+            Command::Put(put_message) => {
+                println!("[OPServer {}] Received put message: {:?}", pid, put_message);
+                let key = put_message.key();
+                let val = put_message.val();
+                let kv_to_store = KeyValue { key: key.to_string(), val: val.to_string() };
+                let mut omni_paxos_harald = omni_paxos.lock().await;
+                omni_paxos_harald.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
+                let response_frame = Response::new(key.to_string(), val.to_string()).to_frame();
+                connection.write_frame(&response_frame).await.unwrap();
+                continue
+            },
+            Command::Response(response_msg) => {
+                println!("[OPServer {}] Received response: {:?}", pid, response_msg);
+                continue
             }
-        },
-        Command::Put(put_message) => {
-            println!("[OPServer {}] Received put message: {:?}", pid, put_message);
-            let key = put_message.key();
-            let val = put_message.val();
-            let kv_to_store = KeyValue { key: key.to_string(), val: val.to_string() };
-            let mut omni_paxos_harald = omni_paxos.lock().await;
-            omni_paxos_harald.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
-            let response_frame = Response::new(key.to_string(), val.to_string()).to_frame();
-            connection.write_frame(&response_frame).await.unwrap();
-            Ok(())
-        },
-        Command::Response(response_msg) => {
-            println!("[OPServer {}] Received response: {:?}", pid, response_msg);
-            Ok(())
-        }
+        };
     }
+
 }
 
 
@@ -233,9 +246,6 @@ async fn send_outgoing_msgs_periodically(
         outgoing_interval.tick().await;
         
         let messages = omni_paxos.lock().await.outgoing_messages();
-        if messages.len() > 0 {
-            println!("Num msgs: {}", messages.len());
-        }
 
         for msg in messages {
 
@@ -256,15 +266,21 @@ async fn send_outgoing_msgs_periodically(
             match msg {
                 SequencePaxos(m) => {
                     let frame = OpMessage::SequencePaxos(m).to_frame();
-                    println!("[OPServer {}] Sending SequencePaxos frame: {:?}", pid, frame);
+                    // println!("[OPServer {}] Sending SequencePaxos frame: {:?}", pid, frame);
                     let mut connection = Connection::new(stream);
                     connection.write_frame(&frame).await.unwrap();
                 }
                 BLE(m) => {
                     let frame = OpMessage::BLEMessage(m).to_frame();
-                    println!("[OPServer {}] Sending BLE frame: {:?}", pid, frame);
+                    // println!("[OPServer {}] Sending BLE frame: {:?}", pid, frame);
                     let mut connection = Connection::new(stream);
-                    connection.write_frame(&frame).await.unwrap();
+                    let write_res = connection.write_frame(&frame).await;
+                    match write_res {
+                        Ok(_) => {}
+                        Err(e) => {
+                            // println!("[OPServer {}] Error writing BLE Message frame: {:?}", pid, e);
+                        }
+                    }
                 }
             }
 
@@ -273,6 +289,16 @@ async fn send_outgoing_msgs_periodically(
     }
 }
 
+
+// Method that periodically takes outgoing messages from the OmniPaxos instance, and sends them to the appropriate node.
+async fn call_leader_election_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>) {
+    
+    let mut election_interval = time::interval(Duration::from_millis(100));
+    loop {
+        election_interval.tick().await;
+        omni_paxos.lock().await.election_timeout();
+    }
+}
 
 pub async fn run(pid: u64, op: OmniPaxosServer) {
 
@@ -290,6 +316,12 @@ pub async fn run(pid: u64, op: OmniPaxosServer) {
     let op_lock_sender_clone = Arc::clone(&op_lock);
     tokio::spawn(async move {
         send_outgoing_msgs_periodically(&op_lock_sender_clone, topology, pid).await;
+    });
+
+    // Periodically send outgoing messages if any = op.topology;
+    let op_lock_election_clone = Arc::clone(&op_lock);
+    tokio::spawn(async move {
+        call_leader_election_periodically(&op_lock_election_clone).await;
     });
 
 }

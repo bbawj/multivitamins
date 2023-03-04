@@ -1,10 +1,6 @@
 use multivitamins::{DEFAULT_ADDR, SERVER_PORTS, CliServer};
 use multivitamins::op_server::{OmniPaxosServer};
-use omnipaxos_core::omni_paxos::{OmniPaxos, OmniPaxosConfig};
-use omnipaxos_storage::memory_storage::MemoryStorage;
-use tokio::net::TcpListener;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 
 
@@ -41,7 +37,7 @@ async fn spawn_local_nodes(configuration_id: u32, topology: HashMap<u64, String>
         println!("[Main] Spawning node {} on {}", pid, node);
 
         // Spawn thread to run the node: we need the port, the OmniPaxosConfig, and the topology
-        let mut op_server = OmniPaxosServer::new(configuration_id, topology.clone(), pid).await;
+        let op_server = OmniPaxosServer::new(configuration_id, topology.clone(), pid).await;
 
         // Spawn a new thread to run the node
         tokio::spawn(async move {

@@ -480,7 +480,7 @@ impl ToFromFrame for Prepare {
 
 impl ToFromFrame for AcceptSync<KeyValue, KeyValueSnapshot> {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
-        frame.push_string("promise");
+        frame.push_string("acceptsync");
         self.n.to_frame(frame);
         // encode additional length of suffix
         frame.push_int(self.suffix.len().try_into().unwrap());

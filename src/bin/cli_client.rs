@@ -58,6 +58,7 @@ async fn main() {
             let cmd = CliCommand::from_frame(response).expect("[CliClient] Failed to read response");
             match cmd {
                 CliCommand::Response(r) => println!("[CliClient] Key: {}, Value: {}", r.key(), r.value()),
+                CliCommand::Error(e) => println!("[CliClient] Error - {:?}", e.value()),
                 _ => panic!("[CliClient] Incorrect command received")
             }
         }

@@ -19,7 +19,7 @@ impl Response {
     pub(crate) fn parse_frame(parse: &mut Parse) -> crate::cli::Result<Response> {
         let key = parse.next_string()?;
         let value = parse.next_string()?;
-        Ok(Response { key, value })
+        Ok(Response::new(key.to_string(), value.to_string()))
     }
     pub fn to_frame(self) -> Frame {
         let mut frame = Frame::array();

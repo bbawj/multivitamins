@@ -71,13 +71,7 @@ impl CliServer {
 
             // Forward response to cli_client
             let response_frame_copy = response_frame.clone();
-            let response_cmd = Command::from_frame(response_frame).expect("");
-            match response_cmd {
-                Command::Response(r) => {
-                    cli_client_connection.write_frame(&response_frame_copy).await.unwrap();
-                }
-                _ => panic!("[CliServer] Should be response"),
-            }
+            cli_client_connection.write_frame(&response_frame).await.unwrap();
             println!("[CliServer] Forwarded response frame to cli_client: {:?}", response_frame_copy);
         }
     }

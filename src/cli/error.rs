@@ -19,6 +19,7 @@ impl Error {
     }
     pub fn to_frame(&self) -> Frame {
         let mut frame = Frame::array();
+        frame.push_string("error");
         frame.push_string(&self.value());
         frame
     }

@@ -197,13 +197,13 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                         let option_val = kv_store.get(key);
                         let response_frame = match option_val {
                             Some(val) => Response::new(key.to_string(), val.to_string()).to_frame(),
-                            None => Error::new(format!("Key: {} is not found", key)).to_frame(),
+                            None => Error::new(format!("Key {} is not found", key)).to_frame(),
                         };
                         connection.write_frame(&response_frame).await.unwrap();
                         continue;
                     },
                     None => {
-                        let error = format!("Key: {} is not found", key);
+                        let error = format!("Key {} is not found", key);
                         let error_frame = Error::new(error).to_frame();
                         connection.write_frame(&error_frame).await.unwrap();
                         continue;

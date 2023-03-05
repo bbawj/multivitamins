@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use omnipaxos_core::{
     ballot_leader_election::Ballot,
     messages::{
@@ -21,6 +23,7 @@ pub enum OpMessage {
     BLEMessage(BLEMessage),
     HeartbeatMessage(HeartbeatMsg),
     KeyValue(KeyValue),
+    KeyValueSnapshot(KeyValueSnapshot),
     Ballot(Ballot),
     StopSign(Option<StopSign>),
 }
@@ -97,18 +100,18 @@ impl OpMessage {
                 }
             }
             OpMessage::BLEMessage(m) => {
-
                 frame.push_string("opmessage");
                 frame.push_int(m.from);
                 frame.push_int(m.to);
                 m.msg.to_frame(&mut frame);
                 frame
-
             }
             _ => panic!("OpMessage to_frame should only ever take in Message struct"),
         }
     }
-    pub(crate) fn from_frame(parse: &mut Parse) -> crate::cli::Result<Message<KeyValue, KeyValueSnapshot>> {
+    pub(crate) fn from_frame(
+        parse: &mut Parse,
+    ) -> crate::cli::Result<Message<KeyValue, KeyValueSnapshot>> {
         let from = parse.next_int()?;
         let to = parse.next_int()?;
         let message_type = parse.next_string()?.to_lowercase();
@@ -321,6 +324,31 @@ impl ToFromFrame for KeyValue {
         let val = parse.next_string()?;
         // let value = parse.next_int()?;
         Ok(OpMessage::KeyValue(KeyValue { key, val }))
+    }
+}
+
+impl ToFromFrame for KeyValueSnapshot {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        frame.push_int(self.db.len().try_into().unwrap());
+        for (k, v) in &self.db {
+            let kv = KeyValue {
+                key: k.to_string(),
+                val: v.to_string(),
+            };
+            kv.to_frame(frame);
+        }
+        frame
+    }
+
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let len = parse.next_int()?;
+        let mut kv_snapshot: KeyValueSnapshot = KeyValueSnapshot { db: HashMap::new() };
+        for _ in 0..len {
+            let key = parse.next_string()?;
+            let val = parse.next_string()?;
+            kv_snapshot.db.insert(key, val);
+        }
+        Ok(OpMessage::KeyValueSnapshot(kv_snapshot))
     }
 }
 

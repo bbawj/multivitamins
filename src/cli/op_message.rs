@@ -10,7 +10,7 @@ use omnipaxos_core::{
         },
         Message,
     },
-    storage::StopSign,
+    storage::{SnapshotType, StopSign},
 };
 
 use crate::op_server::{KeyValue, KeyValueSnapshot};
@@ -24,6 +24,7 @@ pub enum OpMessage {
     HeartbeatMessage(HeartbeatMsg),
     KeyValue(KeyValue),
     KeyValueSnapshot(KeyValueSnapshot),
+    SnapshotType(SnapshotType<KeyValue, KeyValueSnapshot>),
     Ballot(Ballot),
     StopSign(Option<StopSign>),
 }
@@ -327,6 +328,39 @@ impl ToFromFrame for KeyValue {
     }
 }
 
+impl ToFromFrame for SnapshotType<KeyValue, KeyValueSnapshot> {
+    fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
+        match self {
+            SnapshotType::Complete(s) => {
+                frame.push_string("complete");
+                s.to_frame(frame);
+            }
+            SnapshotType::Delta(s) => {
+                frame.push_string("delta");
+                s.to_frame(frame);
+            }
+            // unsure what to do about this actually
+            SnapshotType::_Phantom(s) => todo!(),
+        }
+        frame
+    }
+
+    fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
+        let snapshot_type = parse.next_string()?;
+        match &snapshot_type[..] {
+            "complete" => {
+                let kv_snapshot_message = KeyValueSnapshot::from_frame(parse)?;
+                let kv_snapshot = match kv_snapshot_message {
+                    OpMessage::KeyValueSnapshot(s) => s,
+                    _ => panic!(),
+                };
+                Ok(OpMessage::SnapshotType(Self::Complete(kv_snapshot)))
+            }
+            _ => panic!("invalid snapshot_type parsed"),
+        }
+    }
+}
+
 impl ToFromFrame for KeyValueSnapshot {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
         frame.push_int(self.db.len().try_into().unwrap());
@@ -425,6 +459,12 @@ impl ToFromFrame for Promise<KeyValue, KeyValueSnapshot> {
         frame.push_string("promise");
         self.n.to_frame(frame);
         self.n_accepted.to_frame(frame);
+        if self.decided_snapshot.is_some() {
+            frame.push_int(1);
+            self.decided_snapshot.as_ref().unwrap().to_frame(frame);
+        } else {
+            frame.push_int(0);
+        }
         // encode additional length of suffix
         frame.push_int(self.suffix.len().try_into().unwrap());
         for x in &self.suffix[0..] {
@@ -451,6 +491,15 @@ impl ToFromFrame for Promise<KeyValue, KeyValueSnapshot> {
             },
             _ => panic!("message error; incorrect spmessage parsed"),
         };
+        let has_snapshot = parse.next_int()?;
+        let mut decided_snapshot = None;
+        if has_snapshot == 1 {
+            let snapshot = match SnapshotType::from_frame(parse)? {
+                OpMessage::SnapshotType(s) => s,
+                _ => panic!("expected SnapshotType enum while parsing message"),
+            };
+            decided_snapshot = Some(snapshot);
+        }
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
         for _ in 0..len {
@@ -466,7 +515,7 @@ impl ToFromFrame for Promise<KeyValue, KeyValueSnapshot> {
         Ok(OpMessage::PaxosMsg(PaxosMsg::Promise(Promise {
             n,
             n_accepted,
-            decided_snapshot: None,
+            decided_snapshot,
             suffix,
             decided_idx,
             accepted_idx,

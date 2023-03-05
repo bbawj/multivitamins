@@ -28,6 +28,7 @@ async fn main() {
     spawn_local_nodes(configuration_id, topology.clone()).await;
     spawn_cli_server(topology.clone()).await;
 
+    // multivitamins::test::run_tests().await;
 }
 
 // Spawn a new thread for each node in the cluster, and run the node on that thread.
@@ -49,5 +50,7 @@ async fn spawn_local_nodes(configuration_id: u32, topology: HashMap<u64, String>
 // Start the CLI server
 async fn spawn_cli_server(topology: HashMap<u64, String>) {
     let cli_server = CliServer::new(topology.clone());
-    cli_server.listen().await;
+    // tokio::spawn(async  move {
+        cli_server.listen().await;
+    // });
 }

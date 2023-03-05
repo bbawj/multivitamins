@@ -1,13 +1,7 @@
 
 use clap::{arg, command, Command};
 use multivitamins::cli::{
-    get::Get, put::Put,
-    connection::Connection, command::Command as CliCommand,
-    COMMAND_LISTENER_PORT, DEFAULT_ADDR};
-
-
-use tokio::net::TcpStream;
-
+    get::Get, put::Put, client};
 
 #[tokio::main]
 async fn main() {
@@ -40,32 +34,6 @@ async fn main() {
        }, 
         _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
     }
-    // create a Frame
-
-    // Sets up tcp connection
-    let address = String::from(DEFAULT_ADDR);
-    let port = COMMAND_LISTENER_PORT;
-    let mut socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
-    let mut connection = Connection::new(&mut socket);
-
-    // send the frame to the server
-    connection.write_frame(&frame).await.unwrap();
-
-
-    let response_frame = connection.read_frame().await.unwrap();
-    match response_frame {
-        Some(response) => {
-            let cmd = CliCommand::from_frame(response).expect("[CliClient] Failed to read response");
-            match cmd {
-                CliCommand::Response(r) => println!("[CliClient] Key: {}, Value: {}", r.key(), r.value()),
-                CliCommand::Error(e) => println!("[CliClient] Error - {:?}", e.value()),
-                _ => panic!("[CliClient] Incorrect command received")
-            }
-        }
-        None => {
-            println!("Sadge");
-        }
-
-    }
-
+    // connect to CLI server
+    client::send_frame(&frame).await;
 }

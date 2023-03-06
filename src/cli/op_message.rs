@@ -483,23 +483,8 @@ impl ToFromFrame for Promise<KeyValue, KeyValueSnapshot> {
 
     fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
-        let n_accepted = match Ballot::from_frame(parse)? {
-            OpMessage::Ballot(m) => Ballot {
-                n: m.n,
-                priority: m.priority,
-                pid: m.pid,
-            },
-            _ => panic!("message error; incorrect spmessage parsed"),
-        };
-        let has_snapshot = parse.next_int()?;
-        let mut decided_snapshot = None;
-        if has_snapshot == 1 {
-            let snapshot = match SnapshotType::from_frame(parse)? {
-                OpMessage::SnapshotType(s) => s,
-                _ => panic!("expected SnapshotType enum while parsing message"),
-            };
-            decided_snapshot = Some(snapshot);
-        }
+        let n_accepted = parse_ballot(parse)?;
+        let decided_snapshot = parse_snapshot(parse)?;
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
         for _ in 0..len {
@@ -559,6 +544,12 @@ impl ToFromFrame for AcceptSync<KeyValue, KeyValueSnapshot> {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
         frame.push_string("acceptsync");
         self.n.to_frame(frame);
+        if self.decided_snapshot.is_some() {
+            frame.push_int(1);
+            self.decided_snapshot.as_ref().unwrap().to_frame(frame);
+        } else {
+            frame.push_int(0);
+        }
         // encode additional length of suffix
         frame.push_int(self.suffix.len().try_into().unwrap());
         for x in &self.suffix[0..] {
@@ -577,6 +568,7 @@ impl ToFromFrame for AcceptSync<KeyValue, KeyValueSnapshot> {
 
     fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let n = parse_ballot(parse)?;
+        let decided_snapshot = parse_snapshot(parse)?;
         let len = parse.next_int()?;
         let mut suffix = Vec::new();
         for _ in 0..len {
@@ -591,7 +583,7 @@ impl ToFromFrame for AcceptSync<KeyValue, KeyValueSnapshot> {
 
         Ok(OpMessage::PaxosMsg(PaxosMsg::AcceptSync(AcceptSync {
             n,
-            decided_snapshot: None,
+            decided_snapshot,
             suffix,
             sync_idx,
             decided_idx,
@@ -830,6 +822,21 @@ fn parse_ballot(parse: &mut Parse) -> crate::cli::Result<Ballot> {
         OpMessage::Ballot(m) => Ok(m),
         _ => panic!(),
     }
+}
+
+fn parse_snapshot(
+    parse: &mut Parse,
+) -> crate::cli::Result<Option<SnapshotType<KeyValue, KeyValueSnapshot>>> {
+    let mut decided_snapshot = None;
+    let has_snapshot = parse.next_int()?;
+    if has_snapshot == 1 {
+        let snapshot = match SnapshotType::from_frame(parse)? {
+            OpMessage::SnapshotType(s) => s,
+            _ => panic!("expected SnapshotType enum while parsing message"),
+        };
+        decided_snapshot = Some(snapshot);
+    }
+    Ok(decided_snapshot)
 }
 
 fn parse_stopsign(parse: &mut Parse) -> crate::cli::Result<StopSign> {

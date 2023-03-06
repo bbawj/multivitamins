@@ -2,6 +2,7 @@ use multivitamins::{DEFAULT_ADDR, SERVER_PORTS, CliServer};
 use multivitamins::op_server::OmniPaxosServer;
 use std::collections::HashMap;
 use std::usize;
+use std::cell::Cell;
 
 
 
@@ -64,8 +65,8 @@ async fn spawn_local_nodes(configuration_id: u32, topology: HashMap<u64, String>
 
 // Start the CLI server
 async fn spawn_cli_server(topology: HashMap<u64, String>) {
-    let cli_server = CliServer::new(topology.clone());
-    tokio::spawn(async  move {
+    let mut cli_server = CliServer::new(topology.clone());
+    tokio::spawn(async move {
         cli_server.listen().await;
     });
 }

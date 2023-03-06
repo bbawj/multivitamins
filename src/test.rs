@@ -7,13 +7,13 @@ use crate::{cli::{client, get::Get, put::Put}, OUTGOING_MESSAGES_TIMEOUT};
 pub async fn run_tests(node_handler: Vec<tokio::task::JoinHandle<Vec<tokio::task::JoinHandle<()>>>>) {
 
     time::interval(Duration::from_millis(1000)).tick().await;
-    let mut dur = 100;
+    let dur = 100;
     let mut key = 1;
     let value = "yeet";
     let mut count = 1;
     let mut timing: u128;
     let mut total_times = 0;
-    let num_iters = 10;
+    let num_iters = 1;
 
 
     loop{
@@ -28,11 +28,11 @@ pub async fn run_tests(node_handler: Vec<tokio::task::JoinHandle<Vec<tokio::task
 
         println!("Avg duration: {}", total_times/count);
         //dur -= 10;
-        key += 1;
-        count += 1;
         if count == num_iters{
             break;
         }
+        key += 1;
+        count += 1;
         
     }
 

@@ -1,4 +1,6 @@
 use tokio::net::TcpStream;
+use std::time::Duration;
+use tokio::time;
 
 use crate::DEFAULT_ADDR;
 
@@ -9,7 +11,19 @@ pub async fn send_frame(frame: &Frame) -> i32 { //to remove "-> i32"
     // Sets up tcp connection
     let address = String::from(DEFAULT_ADDR);
     let port = COMMAND_LISTENER_PORT;
-    let mut socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
+
+    let mut socket_result = TcpStream::connect(format!("{}:{}", address, port)).await;
+
+    // If connection to server gives error (refused)
+    while socket_result.is_err() {
+        
+        println!{"[CliClient] TCP connection to server refused"};
+        time::interval(Duration::from_millis(1000)).tick().await;
+        socket_result = TcpStream::connect(format!("{}:{}", address, port)).await;
+
+    }
+    let mut socket = socket_result.unwrap();
+    //let mut socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
     let mut connection = Connection::new(&mut socket);
 
     let mut to_return = 0; //to remove
@@ -35,7 +49,7 @@ pub async fn send_frame(frame: &Frame) -> i32 { //to remove "-> i32"
             }
         }
         None => {
-            println!("Sadge");
+            println!("[CliClient] Sadge");
         }
     }
     return to_return;

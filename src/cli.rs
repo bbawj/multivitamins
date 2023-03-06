@@ -7,6 +7,7 @@ pub mod get;
 pub mod op_message;
 pub mod parse;
 pub mod put;
+pub mod reconfigure;
 pub mod response;
 
 pub const COMMAND_LISTENER_ADDR: &str = "127.0.0.1";

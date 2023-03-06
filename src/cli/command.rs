@@ -4,7 +4,7 @@ use crate::op_server::{KeyValue, KeyValueSnapshot};
 
 use super::{
     error::Error, frame::Frame, get::Get, op_message::OpMessage, parse::Parse, put::Put,
-    response::Response,
+    reconfigure::Reconfigure, response::Response,
 };
 
 pub enum Command {
@@ -12,6 +12,7 @@ pub enum Command {
     Put(Put),
     Response(Response),
     OpMessage(Message<KeyValue, KeyValueSnapshot>),
+    Reconfigure(Reconfigure),
     Error(Error),
 }
 
@@ -26,6 +27,7 @@ impl Command {
             "put" => Command::Put(Put::parse_frame(&mut parse)?),
             "response" => Command::Response(Response::parse_frame(&mut parse)?),
             "opmessage" => Command::OpMessage(OpMessage::from_frame(&mut parse)?),
+            "reconfigure" => Command::Reconfigure(Reconfigure::parse_frame(&mut parse)?),
             "error" => Command::Error(Error::parse_frame(&mut parse)?),
             _ => panic!("invalid command name provided"),
         };

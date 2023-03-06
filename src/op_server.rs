@@ -1,5 +1,5 @@
 use omnipaxos_core::messages::Message::{BLE, SequencePaxos};
-use omnipaxos_core::omni_paxos::{OmniPaxosConfig, OmniPaxos};
+use omnipaxos_core::omni_paxos::{OmniPaxosConfig, OmniPaxos, ReconfigurationRequest};
 use omnipaxos_core::storage::Snapshot;
 use omnipaxos_core::util::LogEntry;
 use omnipaxos_storage::memory_storage::MemoryStorage;
@@ -114,7 +114,7 @@ impl OmniPaxosServer {
 }
 
 
-async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid: u64) {
+async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid: u64, topology: HashMap<u64, String>) {
     
     println!("[OPServer {}] Begin listening for incoming messages", pid);
 
@@ -127,11 +127,13 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
                 println!("[OPServer {}] Received connection from {}", pid, addr);
                 let omni_paxos = Arc::clone(omni_paxos);
 
+                let processor_topology = topology.clone();
                 tokio::spawn(async move {
                     let res = process_incoming_connection(
                         &omni_paxos, 
                         &mut stream,
-                        pid
+                        pid,
+                        processor_topology,
                     ).await;
 
                     if let Err(e) = res {
@@ -150,7 +152,7 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
 
 // Method that handles incoming messages, that gets called by the listen method,
 // in a separate thread, when a new message is received.
-async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: &mut TcpStream, pid: u64) -> Result<()> {
+async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: &mut TcpStream, pid: u64, topology: HashMap<u64, String>) -> Result<()> {
     
     let mut connection = Connection::new(stream);
 
@@ -222,6 +224,18 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
             Command::Response(response_msg) => {
                 println!("[OPServer {}] Received response: {:?}", pid, response_msg);
                 continue;
+            }
+            Command::Reconfigure(reconfigure_message) => {
+                println!("[OPServer {}] Received reconfigure message {:?}", pid, reconfigure_message);
+                let metadata = None;
+                let rc = ReconfigurationRequest::with(topology.clone().into_keys().collect(), metadata);
+                match omni_paxos.lock().await.reconfigure(rc) {
+                    Ok(e) => e,
+                    Err(_) => {
+                        let error_frame = Error::new("Failed to propose reconfiguration".to_string()).to_frame();
+                        connection.write_frame(&error_frame).await;
+                    }
+                }
             }
             Command::Error(error_message) => {
                 println!("[OPServer {}] Received error: {:?}", pid, error_message);
@@ -303,6 +317,35 @@ async fn call_leader_election_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>)
     }
 }
 
+async fn check_stopsign_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, pid: u64) {
+    let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = omni_paxos.lock().await.read_decided_suffix(0);
+    if let Some(de) = decided_entries {
+        for d in de {
+            match d {
+                LogEntry::StopSign(stopsign) => {
+                    let new_configuration = stopsign.nodes;
+                    if new_configuration.contains(&pid) {
+                        // we are in new configuration, start new instance
+                        let new_omnipaxos_config = OmniPaxosConfig {
+                            configuration_id: stopsign.config_id,
+                            pid,
+                            // peers,
+                            ..Default::default()
+                        };
+                        // let mut new_omnipaxos = new_omnipaxos_config.build(MemoryStorage::default());
+
+                        // use new_sp
+                    }
+                }
+                _ => {
+                    todo!()
+                }
+            }
+        }
+    }
+
+}
+
 pub async fn run(pid: u64, op: OmniPaxosServer) {
 
     let op_lock = Arc::new(Mutex::new(op.omni_paxos));
@@ -310,15 +353,16 @@ pub async fn run(pid: u64, op: OmniPaxosServer) {
     // Listen to incoming connections
     let listener = op.listener;
     let op_lock_listener_clone = Arc::clone(&op_lock);
+    let listener_topology = op.topology.clone();
     tokio::spawn(async move {
-        listen(&op_lock_listener_clone, listener, pid).await;
+        listen(&op_lock_listener_clone, listener, pid, listener_topology).await;
     });
 
     // Periodically send outgoing messages if any
-    let topology = op.topology;
     let op_lock_sender_clone = Arc::clone(&op_lock);
+    let sender_topology = op.topology.clone();
     tokio::spawn(async move {
-        send_outgoing_msgs_periodically(&op_lock_sender_clone, topology, pid).await;
+        send_outgoing_msgs_periodically(&op_lock_sender_clone, sender_topology, pid).await;
     });
 
     // Periodically send outgoing messages if any = op.topology;

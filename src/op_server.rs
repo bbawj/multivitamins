@@ -346,29 +346,32 @@ async fn check_stopsign_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, pid: 
 
 }
 
-pub async fn run(pid: u64, op: OmniPaxosServer) {
+pub async fn run(pid: u64, op: OmniPaxosServer) -> Vec<tokio::task::JoinHandle<()>>{
 
     let op_lock = Arc::new(Mutex::new(op.omni_paxos));
+    let mut handles = Vec::new();
 
     // Listen to incoming connections
     let listener = op.listener;
     let op_lock_listener_clone = Arc::clone(&op_lock);
     let listener_topology = op.topology.clone();
-    tokio::spawn(async move {
+    handles.push(tokio::spawn(async move {
         listen(&op_lock_listener_clone, listener, pid, listener_topology).await;
-    });
+    }));
 
     // Periodically send outgoing messages if any
     let op_lock_sender_clone = Arc::clone(&op_lock);
     let sender_topology = op.topology.clone();
-    tokio::spawn(async move {
+    handles.push(tokio::spawn(async move {
         send_outgoing_msgs_periodically(&op_lock_sender_clone, sender_topology, pid).await;
-    });
+    }));
 
     // Periodically send outgoing messages if any = op.topology;
     let op_lock_election_clone = Arc::clone(&op_lock);
-    tokio::spawn(async move {
+    handles.push(tokio::spawn(async move {
         call_leader_election_periodically(&op_lock_election_clone).await;
-    });
+    }));
+
+    return handles;
 
 }

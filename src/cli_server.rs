@@ -7,7 +7,7 @@ use rand::Rng;
 use std::{collections::HashMap, result};
 
 use crate::{
-    cli::{command::Command, connection::Connection, Result,
+    cli::{command::Command, connection::Connection, Result, parse::Parse, frame::Frame,
         COMMAND_LISTENER_PORT, COMMAND_LISTENER_ADDR},
 };
 
@@ -47,7 +47,34 @@ impl CliServer {
                 Some(frame) => frame,
                 None => return Ok(()),
             };
-            let inbound_frame = frame.clone();
+            let frame_received = frame.clone();
+
+            let mut parse = Parse::new(frame_received)?;
+            let command_name = parse.next_string()?.to_lowercase();
+
+
+            let mut key = parse.next_string()?;
+            let mut value: String;
+            let mut inbound_frame = Frame::array();
+
+            inbound_frame.push_string(&command_name);
+            inbound_frame.push_string(&key);
+            
+            if command_name == "put"{
+                value = parse.next_string()?;
+                inbound_frame.push_string(&value);
+
+                println!("Frame parsed: {} {} {}", command_name, key, value);
+            }
+            let node = parse.next_string()?;
+
+            let temp_frame = inbound_frame.clone();
+        
+
+            // let command_name = parse.next_string()?.to_lowercase();
+            // println!("Parsed {}", command_name);
+
+
 
             // Connect to random server
             let mut random = true;
@@ -71,7 +98,7 @@ impl CliServer {
                 println!("[CliServer] Connected to OPServer node {} at {}", server_num, rand_server_socket_addr);
 
                 // Send request to op_server
-                outbound_connection.write_frame(&inbound_frame).await;
+                outbound_connection.write_frame(&temp_frame).await;
                 println!("[CliServer] Forwarded frame to OPServer node {}: {:?}", server_num, frame);
 
                 // Wait for response

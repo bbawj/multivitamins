@@ -16,5 +16,5 @@ async fn main() {
 
     let op_server = OmniPaxosServer::new(2, topology.clone(), pid).await;
 
-    multivitamins::op_server::run(pid, op_server).await;
+    multivitamins::op_server::run_recovery(pid, op_server).await;
 }

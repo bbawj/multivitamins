@@ -1,9 +1,12 @@
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use omnipaxos_core::messages::Message::{BLE, SequencePaxos};
 use omnipaxos_core::omni_paxos::{OmniPaxosConfig, OmniPaxos, ReconfigurationRequest};
 use omnipaxos_core::storage::Snapshot;
 use omnipaxos_core::util::LogEntry;
 use omnipaxos_storage::memory_storage::MemoryStorage;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time;
@@ -17,7 +20,7 @@ use crate::cli::error::Error;
 use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
-use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT};
+use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT, DEFAULT_ADDR};
 
 
 #[derive(Clone, Debug)] // Clone and Debug are required traits.
@@ -317,51 +320,77 @@ async fn call_leader_election_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>)
     }
 }
 
-async fn check_stopsign_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, pid: u64) {
-    let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = omni_paxos.lock().await.read_decided_suffix(0);
-    if let Some(de) = decided_entries {
-        for d in de {
-            match d {
-                LogEntry::StopSign(stopsign) => {
-                    let new_configuration = stopsign.nodes;
-                    if new_configuration.contains(&pid) {
-                        // we are in new configuration, start new instance
-                        let new_omnipaxos_config = OmniPaxosConfig {
-                            configuration_id: stopsign.config_id,
-                            pid,
-                            // peers,
-                            ..Default::default()
-                        };
-                        // let mut new_omnipaxos = new_omnipaxos_config.build(MemoryStorage::default());
+async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u64, prev_config_handles:&Vec<tokio::task::JoinHandle<()>>) -> Option<OmniPaxosServer>{
+    let handles_to_abort = prev_config_handles;
+    let mut election_interval = time::interval(ELECTION_TIMEOUT);
+    loop {
+        election_interval.tick().await;
 
-                        // use new_sp
+        let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = omni_paxos.lock().await.read_decided_suffix(0);
+        if let Some(de) = decided_entries {
+            for d in de {
+                match d {
+                    LogEntry::StopSign(stopsign) => {
+                        let new_configuration = stopsign.nodes;
+                        if new_configuration.contains(&pid) {
+                            // we are in new configuration, start new instance
+                            let new_omnipaxos_config = OmniPaxosConfig {
+                                configuration_id: stopsign.config_id,
+                                pid,
+                                // peers,
+                                ..Default::default()
+                            };
+                            let new_omnipaxos: OmniPaxos<KeyValue, KeyValueSnapshot, MemoryStorage<KeyValue, KeyValueSnapshot>> = new_omnipaxos_config.build(MemoryStorage::default());
+                            let mut new_topology = HashMap::new();
+                            for node in new_configuration {
+                                new_topology.insert(node, format!("{}:{}", DEFAULT_ADDR, node + 50000 - 1));
+                            }
+                            let new_op_server = OmniPaxosServer::new(stopsign.config_id, new_topology, pid).await;
+                            // abort old process handles
+                            for handle in &handles_to_abort[..] {
+                                handle.abort();
+                            }
+                            return Some(new_op_server);
+                        }
                     }
-                }
-                _ => {
-                    todo!()
+                    _ => {
+                        todo!()
+                    }
                 }
             }
         }
     }
-
 }
 
-pub async fn run(pid: u64, op: OmniPaxosServer) -> Vec<tokio::task::JoinHandle<()>>{
+pub fn run_recovery(pid: u64, op: OmniPaxosServer) -> BoxFuture<'static, Vec<tokio::task::JoinHandle<()>>>{
+    async move {
+        let op_lock = Arc::new(Mutex::new(op.omni_paxos));
+        let op_lock_run_clone = Arc::clone(&op_lock);
+        let op_lock_reconfig_clone = Arc::clone(&op_lock);
+        let prev_config_handles = run(pid, op_lock_run_clone, op.listener, op.topology).await;
+        let new_op_server = check_stopsign_periodically(op_lock_reconfig_clone, pid, &prev_config_handles).await;
+        if new_op_server.is_some() {
+            run_recovery(pid, new_op_server.unwrap()).await;
+        }
+        return prev_config_handles;
+    }.boxed()
+}
 
-    let op_lock = Arc::new(Mutex::new(op.omni_paxos));
+pub async fn run(pid: u64, op_lock: Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, topology: HashMap<u64, String>) -> Vec<tokio::task::JoinHandle<()>>{
+    // let op_lock = Arc::new(Mutex::new(op.omni_paxos));
     let mut handles = Vec::new();
 
     // Listen to incoming connections
-    let listener = op.listener;
+    let listener = listener;
     let op_lock_listener_clone = Arc::clone(&op_lock);
-    let listener_topology = op.topology.clone();
+    let listener_topology = topology.clone();
     handles.push(tokio::spawn(async move {
         listen(&op_lock_listener_clone, listener, pid, listener_topology).await;
     }));
 
     // Periodically send outgoing messages if any
     let op_lock_sender_clone = Arc::clone(&op_lock);
-    let sender_topology = op.topology.clone();
+    let sender_topology = topology.clone();
     handles.push(tokio::spawn(async move {
         send_outgoing_msgs_periodically(&op_lock_sender_clone, sender_topology, pid).await;
     }));
@@ -372,6 +401,12 @@ pub async fn run(pid: u64, op: OmniPaxosServer) -> Vec<tokio::task::JoinHandle<(
         call_leader_election_periodically(&op_lock_election_clone).await;
     }));
 
-    return handles;
+    // let op_lock_reconfig_clone = Arc::clone(&op_lock);
+    // let handle_arc = Arc::new(Mutex::new(handles));
+    // let handle_clone = Arc::clone(&handle_arc);
+    // handles.push(tokio::spawn(async move {
+    //     check_stopsign_periodically(&op_lock_reconfig_clone, pid, handle_clone).await;
+    // }));
 
+    return handles;
 }

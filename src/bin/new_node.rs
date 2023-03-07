@@ -4,13 +4,16 @@ use multivitamins::{DEFAULT_ADDR, op_server::OmniPaxosServer};
 
 #[tokio::main]
 async fn main() {
-    let pid = 4;
-    let node = format!("{}:{}", DEFAULT_ADDR, 60000);
+    let pid = 11;
+    let node = format!("{}:{}", DEFAULT_ADDR, 50000+pid-1);
     // TODO: dynamically create this from a config file
     let mut topology: HashMap<u64, String> = HashMap::new();
-    topology.insert(1, format!("{}:{}", DEFAULT_ADDR, 50000));
-    topology.insert(2, format!("{}:{}", DEFAULT_ADDR, 50001));
-    topology.insert(pid, format!("{}:{}", DEFAULT_ADDR, 60000));
+    const num_nodes: usize = 11;
+
+    for id in 0..(num_nodes as u64){
+        topology.insert(1+id, format!("{}:{}", DEFAULT_ADDR, 50000+id));
+    }
+    // topology.insert(pid, format!("{}:{}", DEFAULT_ADDR, 50000+pid));
 
     println!("[New node] Spawning node {} on {}", pid, node);
 

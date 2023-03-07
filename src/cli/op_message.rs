@@ -95,6 +95,7 @@ impl OpMessage {
                         frame
                     }
                     PaxosMsg::ForwardStopSign(p) => {
+                        frame.push_string("forwardstopsign");
                         p.to_frame(&mut frame);
                         frame
                     }
@@ -267,15 +268,16 @@ impl OpMessage {
                 }))
             }
             "forwardstopsign" => {
-                let msg = StopSign::from_frame(parse)?;
-                let msg = match msg {
-                    OpMessage::PaxosMsg(PaxosMsg::ForwardStopSign(p)) => p,
+                let msg = match StopSign::from_frame(parse)? {
+                    OpMessage::StopSign(p) => p,
                     _ => panic!("invalid message type"),
                 };
                 Ok(Message::SequencePaxos(PaxosMessage {
                     from,
                     to,
-                    msg: PaxosMsg::ForwardStopSign(msg),
+                    msg: PaxosMsg::ForwardStopSign(msg.unwrap()), // we can be sure that StopSign
+                                                                  // is not none since we are
+                                                                  // forwarding a StopSign
                 }))
             }
             "heartbeatrequest" => {

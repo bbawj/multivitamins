@@ -1,7 +1,7 @@
 
-use clap::{arg, command, Command};
+use clap::{arg, command, Command, value_parser};
 use multivitamins::cli::{
-    get::Get, put::Put, client};
+    get::Get, put::Put, client, reconfigure::Reconfigure};
 
 #[tokio::main]
 async fn main() {
@@ -12,6 +12,7 @@ async fn main() {
         .arg_required_else_help(true)
         .subcommand(Command::new("get").about("Get a key").arg(arg!([KEY])))
         .subcommand(Command::new("put").about("Set a key").arg(arg!([KEY])).arg(arg!([VALUE])))
+        .subcommand(Command::new("reconfigure").about("Add a node with specified PID").arg(arg!([PID]).value_parser(value_parser!(u64))))
         .get_matches();
 
     let key: &str;
@@ -31,6 +32,12 @@ async fn main() {
             println!("[CliClient] Value to put is {}", value);
             let put_cmd = Put::new(key.to_string(), value.to_string());
             frame = put_cmd.to_frame();
+       }, 
+       Some(("reconfigure", sub_matches)) => {
+            let pid = sub_matches.get_one::<u64>("PID").expect("[CliClient] reconfigure command; pid was not a u64");
+            println!("[CliClient] Node pid to add is {}", *pid);
+            let reconfig_cmd = Reconfigure::new(*pid);
+            frame = reconfig_cmd.to_frame();
        }, 
         _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
     }

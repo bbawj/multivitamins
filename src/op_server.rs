@@ -8,7 +8,7 @@ use omnipaxos_storage::memory_storage::MemoryStorage;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, TcpSocket};
 use tokio::time;
 use tokio::sync::Mutex;
 
@@ -20,7 +20,7 @@ use crate::cli::error::Error;
 use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
-use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT, DEFAULT_ADDR};
+use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT, DEFAULT_ADDR, CHECK_STOPSIGN_TIMEOUT};
 
 
 #[derive(Clone, Debug)] // Clone and Debug are required traits.
@@ -100,7 +100,15 @@ impl OmniPaxosServer {
 
         // Create a listener for incoming messages.
         let socket_addr = topology.get(&pid).unwrap().clone();
-        let std_listener = std::net::TcpListener::bind(&socket_addr).expect("Failed to bind");
+        // set reuseport with Tokio TcpSocket
+        let socket = TcpSocket::new_v4().unwrap();
+        socket.set_reuseport(true).expect("Failed to set reuseport on TcpSocket");
+        socket.bind(socket_addr.parse().unwrap()).expect("Failed to bind");
+        let listener = socket.listen(1024).unwrap();
+        // set non-blocking using std::net::TcpListener
+        let std_listener = listener.into_std().unwrap();
+        
+        // let std_listener = std::net::TcpListener::bind(&socket_addr).expect("Failed to bind");
         std_listener.set_nonblocking(true).expect("Failed to initialize non-blocking");
         let listener = TcpListener::from_std(std_listener).expect("Failed to convert to async");
         
@@ -230,10 +238,16 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
             }
             Command::Reconfigure(reconfigure_message) => {
                 println!("[OPServer {}] Received reconfigure message {:?}", pid, reconfigure_message);
+                let new_pid = reconfigure_message.pid();
                 let metadata = None;
-                let rc = ReconfigurationRequest::with(topology.clone().into_keys().collect(), metadata);
+                let mut new_topology_ids: Vec<u64> = topology.clone().into_keys().collect();
+                new_topology_ids.push(new_pid);
+                let rc = ReconfigurationRequest::with(new_topology_ids, metadata);
                 match omni_paxos.lock().await.reconfigure(rc) {
-                    Ok(e) => e,
+                    Ok(_) => {
+                        let response_frame = Response::new("reconfigure".to_string(), "OK".to_string()).to_frame();
+                        connection.write_frame(&response_frame).await;
+                    }
                     Err(_) => {
                         let error_frame = Error::new("Failed to propose reconfiguration".to_string()).to_frame();
                         connection.write_frame(&error_frame).await;
@@ -274,9 +288,14 @@ async fn send_outgoing_msgs_periodically(
             // If a TCP Connection has not been established before, establish one
             if !connections.contains_key(&receiver) {
                 
-                let socket_addr = topology.get(&receiver).unwrap();
-                let new_stream = TcpStream::connect(&socket_addr).await.unwrap();
-                connections.insert(receiver, new_stream);
+                println!("[OPServer {}]: trying to send message to receiver {}", pid, receiver);
+                match topology.get(&receiver) {
+                    Some(socket_addr) => {
+                        let new_stream = TcpStream::connect(&socket_addr).await.unwrap();
+                        connections.insert(receiver, new_stream);
+                    },
+                    None => continue,
+                };
 
             } 
             
@@ -286,7 +305,7 @@ async fn send_outgoing_msgs_periodically(
             match msg {
                 SequencePaxos(m) => {
                     let frame = OpMessage::SequencePaxos(m).to_frame();
-                    // println!("[OPServer {}] Sending SequencePaxos frame: {:?}", pid, frame);
+                    println!("[OPServer {}] Sending SequencePaxos frame: {:?}", pid, frame);
                     let mut connection = Connection::new(stream);
                     connection.write_frame(&frame).await.unwrap();
                 }
@@ -322,25 +341,20 @@ async fn call_leader_election_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>)
 
 async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u64, prev_config_handles:&Vec<tokio::task::JoinHandle<()>>) -> Option<OmniPaxosServer>{
     let handles_to_abort = prev_config_handles;
-    let mut election_interval = time::interval(ELECTION_TIMEOUT);
+    let mut interval = time::interval(CHECK_STOPSIGN_TIMEOUT);
     loop {
-        election_interval.tick().await;
+        interval.tick().await;
+        // println!("[OPServer {}]: checking stopsign", {pid});
 
         let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = omni_paxos.lock().await.read_decided_suffix(0);
         if let Some(de) = decided_entries {
             for d in de {
                 match d {
                     LogEntry::StopSign(stopsign) => {
+                        println!("[OPServer {}]: StopSign found, beginning reconfiguration", pid);
                         let new_configuration = stopsign.nodes;
                         if new_configuration.contains(&pid) {
                             // we are in new configuration, start new instance
-                            let new_omnipaxos_config = OmniPaxosConfig {
-                                configuration_id: stopsign.config_id,
-                                pid,
-                                // peers,
-                                ..Default::default()
-                            };
-                            let new_omnipaxos: OmniPaxos<KeyValue, KeyValueSnapshot, MemoryStorage<KeyValue, KeyValueSnapshot>> = new_omnipaxos_config.build(MemoryStorage::default());
                             let mut new_topology = HashMap::new();
                             for node in new_configuration {
                                 new_topology.insert(node, format!("{}:{}", DEFAULT_ADDR, node + 50000 - 1));
@@ -353,9 +367,7 @@ async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u
                             return Some(new_op_server);
                         }
                     }
-                    _ => {
-                        todo!()
-                    }
+                    _ => {}
                 }
             }
         }
@@ -367,10 +379,16 @@ pub fn run_recovery(pid: u64, op: OmniPaxosServer) -> BoxFuture<'static, Vec<tok
         let op_lock = Arc::new(Mutex::new(op.omni_paxos));
         let op_lock_run_clone = Arc::clone(&op_lock);
         let op_lock_reconfig_clone = Arc::clone(&op_lock);
+        let op_lock_check_clone = Arc::clone(&op_lock);
         let prev_config_handles = run(pid, op_lock_run_clone, op.listener, op.topology).await;
         let new_op_server = check_stopsign_periodically(op_lock_reconfig_clone, pid, &prev_config_handles).await;
         if new_op_server.is_some() {
-            run_recovery(pid, new_op_server.unwrap()).await;
+            let new_op_server = new_op_server.unwrap();
+            let new_config = &op_lock_check_clone.lock().await.is_reconfigured();
+            if new_config.is_some() {
+                println!("[OPServer {}]: running new configuration: {:?}", pid, new_config.as_ref().unwrap().nodes);
+            }
+            run_recovery(pid, new_op_server).await;
         }
         return prev_config_handles;
     }.boxed()

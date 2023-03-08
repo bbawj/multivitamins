@@ -294,10 +294,18 @@ async fn send_outgoing_msgs_periodically(
             if !connections.contains_key(&receiver) {
                 
                 println!("[OPServer {}]: trying to send message to receiver {}", pid, receiver);
-                match topology.get(&receiver) {
+                let _ = match topology.get(&receiver) {
                     Some(socket_addr) => {
-                        let new_stream = TcpStream::connect(&socket_addr).await.unwrap();
-                        connections.insert(receiver, Connection::new(new_stream));
+                        match TcpStream::connect(&socket_addr).await {
+                            Ok(new_stream) => {
+                                connections.insert(receiver, Connection::new(new_stream));
+                            }
+                            Err(e) => { match e.kind() {
+                                std::io::ErrorKind::ConnectionRefused => continue,
+                                _ => panic!("{}", e),
+                            }
+                            }
+                        }
                     },
                     None => continue,
                 };

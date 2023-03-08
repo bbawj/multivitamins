@@ -5,15 +5,15 @@ use bytes::{Buf, BytesMut};
 use crate::cli::frame::Frame;
 
 #[derive(Debug)]
-pub struct Connection<'a> {
-    stream: BufWriter<&'a mut TcpStream>,
+pub struct Connection {
+    stream: BufWriter<TcpStream>,
     buffer: BytesMut,
 }
 
 // An abstraction over the TcpStream that is used to send and receive messages.
-impl Connection<'_> {
+impl Connection {
 
-    pub fn new(stream: &mut TcpStream) -> Connection {
+    pub fn new(stream: TcpStream) -> Connection {
         let stream = BufWriter::new(stream);
         let buffer = BytesMut::with_capacity(4096);
         Connection {

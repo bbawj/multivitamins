@@ -39,7 +39,7 @@ impl CliServer {
             // Accept a new incoming connection from a client.
             let (mut cli_client_incoming_stream, _) = listener.accept().await.unwrap();
             println!("[CliServer] Accepted connection from {}", cli_client_incoming_stream.peer_addr().unwrap());
-            let mut cli_client_connection = Connection::new(&mut cli_client_incoming_stream);
+            let mut cli_client_connection = Connection::new(cli_client_incoming_stream);
 
             // Read the incoming message from the socket.
             let maybe_frame = cli_client_connection.read_frame().await.unwrap();
@@ -67,7 +67,7 @@ impl CliServer {
             if socket_result.is_ok(){
                 let mut socket = socket_result.unwrap();
 
-                let mut outbound_connection = Connection::new(&mut socket);
+                let mut outbound_connection = Connection::new(socket);
                 println!("[CliServer] Connected to OPServer node {} at {}", server_num, rand_server_socket_addr);
 
                 // Send request to op_server

@@ -131,7 +131,7 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
 
     loop {
         match listener.accept().await {
-            Ok((mut stream, addr)) => {
+            Ok((stream, addr)) => {
 
                 // Received a new connection from a client.
 
@@ -142,7 +142,7 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
                 tokio::spawn(async move {
                     let res = process_incoming_connection(
                         &omni_paxos, 
-                        &mut stream,
+                        stream,
                         pid,
                         processor_topology,
                     ).await;
@@ -163,7 +163,7 @@ async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid
 
 // Method that handles incoming messages, that gets called by the listen method,
 // in a separate thread, when a new message is received.
-async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: &mut TcpStream, pid: u64, topology: HashMap<u64, String>) -> Result<()> {
+async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: TcpStream, pid: u64, topology: HashMap<u64, String>) -> Result<()> {
     
     let mut connection = Connection::new(stream);
 
@@ -180,7 +180,12 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
         let cmd = Command::from_frame(frame)?;
         match cmd {
             Command::OpMessage(m) => {
-                // println!("[OPServer {}] Received OpMessage: {:?}\n", pid, m);
+                match m {
+                    SequencePaxos(_) => {
+                        println!("[OPServer {}] Received OpMessage: {:?}\n", pid, m);
+                    },
+                    BLE(_) => {},
+                }
                 omni_paxos.lock().await.handle_incoming(m);
                 continue
             },
@@ -274,7 +279,7 @@ async fn send_outgoing_msgs_periodically(
     let mut outgoing_interval = time::interval(OUTGOING_MESSAGES_TIMEOUT);
 
     // Store the connections in a mutable reference, so that we can modify it.
-    let mut connections: HashMap<u64, TcpStream> = HashMap::new();
+    let mut connections: HashMap<u64, Connection> = HashMap::new();
 
     loop {
         outgoing_interval.tick().await;
@@ -292,27 +297,33 @@ async fn send_outgoing_msgs_periodically(
                 match topology.get(&receiver) {
                     Some(socket_addr) => {
                         let new_stream = TcpStream::connect(&socket_addr).await.unwrap();
-                        connections.insert(receiver, new_stream);
+                        connections.insert(receiver, Connection::new(new_stream));
                     },
                     None => continue,
                 };
 
             } 
             
-            let stream = connections.get_mut(&receiver).unwrap();
+            let connection = connections.get_mut(&receiver).unwrap();
 
             // Send message through socket
             match msg {
                 SequencePaxos(m) => {
                     let frame = OpMessage::SequencePaxos(m).to_frame();
                     println!("[OPServer {}] Sending SequencePaxos frame: {:?}", pid, frame);
-                    let mut connection = Connection::new(stream);
-                    connection.write_frame(&frame).await.unwrap();
+                    // let mut connection = Connection::new(stream);
+                    let write_res = connection.write_frame(&frame).await;
+                    match write_res {
+                        Ok(_) => {}
+                        Err(e) => {
+                            println!("[OPServer {}] Error writing BLE Message frame: {:?}", pid, e);
+                        }
+                    }
                 }
                 BLE(m) => {
                     let frame = OpMessage::BLEMessage(m).to_frame();
                     // println!("[OPServer {}] Sending BLE frame: {:?}", pid, frame);
-                    let mut connection = Connection::new(stream);
+                    // let mut connection = Connection::new(stream);
                     let write_res = connection.write_frame(&frame).await;
                     match write_res {
                         Ok(_) => {}
@@ -356,12 +367,13 @@ async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u
                         if new_configuration.contains(&pid) {
                             // we are in new configuration, start new instance
                             let mut new_topology = HashMap::new();
-                            for node in new_configuration {
-                                new_topology.insert(node, format!("{}:{}", DEFAULT_ADDR, node + 50000 - 1));
+                            for id in 0..(new_configuration.len() as u64) {
+                                new_topology.insert(1+id, format!("{}:{}", DEFAULT_ADDR, id + 50000));
                             }
+                            println!("The new topology has size: {}", &new_topology.len());
                             let new_op_server = OmniPaxosServer::new(stopsign.config_id, new_topology, pid).await;
                             // abort old process handles
-                            for handle in &handles_to_abort[..] {
+                            for handle in handles_to_abort {
                                 handle.abort();
                             }
                             return Some(new_op_server);
@@ -390,7 +402,13 @@ pub fn run_recovery(pid: u64, op: OmniPaxosServer) -> BoxFuture<'static, Vec<tok
             }
             run_recovery(pid, new_op_server).await;
         }
-        return prev_config_handles;
+
+        for handle in prev_config_handles {
+            assert!(handle.await.unwrap_err().is_cancelled());
+        }
+
+        // return prev_config_handles;
+        return Vec::new();
     }.boxed()
 }
 

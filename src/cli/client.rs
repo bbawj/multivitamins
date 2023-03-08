@@ -22,9 +22,9 @@ pub async fn send_frame(frame: &Frame) -> i32 { //to remove "-> i32"
         socket_result = TcpStream::connect(format!("{}:{}", address, port)).await;
 
     }
-    let mut socket = socket_result.unwrap();
+    let socket = socket_result.unwrap();
     //let mut socket = TcpStream::connect(format!("{}:{}", address, port)).await.unwrap();
-    let mut connection = Connection::new(&mut socket);
+    let mut connection = Connection::new(socket);
 
     let mut to_return = 0; //to remove
 

@@ -6,6 +6,7 @@ use rand::{seq::IteratorRandom, thread_rng};
 use rand::Rng;
 use std::{collections::HashMap, result};
 
+use crate::cli::parse::Parse;
 use crate::{
     cli::{command::Command, connection::Connection, Result,
         COMMAND_LISTENER_PORT, COMMAND_LISTENER_ADDR},
@@ -48,14 +49,19 @@ impl CliServer {
                 None => return Ok(()),
             };
             let inbound_frame = frame.clone();
+            let mut parse = Parse::new(frame)?;
+            let _ = parse.next_string()?;
+            let target_node = parse.next_string()?;
+            println!("{}", target_node);
+
 
             // Connect to random server
-            let mut random = true;
-            let mut keys = self.topology.keys();
-            let server_num = if random {
+            let random = true;
+            let keys = self.topology.keys();
+            let server_num: u64 = if target_node == "0" && random {
                 keys.copied().choose(& mut rand::thread_rng()).unwrap()
             } else {
-                1 as u64
+                target_node.parse().unwrap()
             };
 
             println!("[CliServer] Connecting to OPServer node {}", server_num);
@@ -72,7 +78,7 @@ impl CliServer {
 
                 // Send request to op_server
                 outbound_connection.write_frame(&inbound_frame).await;
-                println!("[CliServer] Forwarded frame to OPServer node {}: {:?}", server_num, frame);
+                println!("[CliServer] Forwarded frame to OPServer node {}: {:?}", server_num, inbound_frame);
 
                 // Wait for response
                 let response_frame_result = outbound_connection.read_frame().await;

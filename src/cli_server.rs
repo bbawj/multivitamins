@@ -6,6 +6,7 @@ use rand::{seq::IteratorRandom, thread_rng};
 use rand::Rng;
 use std::{collections::HashMap, result};
 
+use crate::DEFAULT_ADDR;
 use crate::cli::parse::Parse;
 use crate::{
     cli::{command::Command, connection::Connection, Result,
@@ -38,7 +39,7 @@ impl CliServer {
         loop {
 
             // Accept a new incoming connection from a client.
-            let (mut cli_client_incoming_stream, _) = listener.accept().await.unwrap();
+            let (cli_client_incoming_stream, _) = listener.accept().await.unwrap();
             println!("[CliServer] Accepted connection from {}", cli_client_incoming_stream.peer_addr().unwrap());
             let mut cli_client_connection = Connection::new(cli_client_incoming_stream);
 
@@ -50,28 +51,37 @@ impl CliServer {
             };
             let inbound_frame = frame.clone();
             let mut parse = Parse::new(frame)?;
-            let _ = parse.next_string()?;
-            let target_node = parse.next_string()?;
-            println!("{}", target_node);
+            let command_name = parse.next_string()?;
+            let mut target_node = 0;
 
+            match &command_name[..] {
+                "put" | "get" => {
+                    target_node = parse.next_int()?;
+                }   
+                "reconfigure" => {
+                    let new_node: u64 = parse.next_int()?;
+                    self.topology.insert(new_node, format!("{}:{}", DEFAULT_ADDR, new_node + 50000 - 1));
+                }
+                _ => {}
+            } 
 
             // Connect to random server
             let random = true;
             let keys = self.topology.keys();
-            let server_num: u64 = if target_node == "0" && random {
+            let server_num: u64 = if target_node == 0 && random {
                 keys.copied().choose(& mut rand::thread_rng()).unwrap()
             } else {
-                target_node.parse().unwrap()
+                target_node
             };
 
             println!("[CliServer] Connecting to OPServer node {}", server_num);
             let rand_server_socket_addr = self.topology.get(&server_num).unwrap().to_string();
-            let mut socket_result = TcpStream::connect(&rand_server_socket_addr).await;
+            let socket_result = TcpStream::connect(&rand_server_socket_addr).await;
 
 
             // If node is ok (TCP connection established)
             if socket_result.is_ok(){
-                let mut socket = socket_result.unwrap();
+                let socket = socket_result.unwrap();
 
                 let mut outbound_connection = Connection::new(socket);
                 println!("[CliServer] Connected to OPServer node {} at {}", server_num, rand_server_socket_addr);

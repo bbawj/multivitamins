@@ -1,7 +1,7 @@
 
 use clap::{arg, command, Command, value_parser};
 use multivitamins::cli::{
-    get::Get, put::Put, client, reconfigure::Reconfigure};
+    get::Get, put::Put, client, reconfigure::Reconfigure, snapshot::Snapshot};
 
 #[tokio::main]
 async fn main() {
@@ -10,9 +10,10 @@ async fn main() {
         .propagate_version(true)
         .subcommand_required(true)
         .arg_required_else_help(true)
-        .subcommand(Command::new("get").about("Get a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY])))
-        .subcommand(Command::new("put").about("Set a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY])).arg(arg!([VALUE])))
-        .subcommand(Command::new("reconfigure").about("Add a node with specified PID").arg(arg!([PID]).value_parser(value_parser!(u64))))
+        .subcommand(Command::new("get").about("Get a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)))
+        .subcommand(Command::new("put").about("Set a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)).arg(arg!([VALUE]).required(true)))
+        .subcommand(Command::new("reconfigure").about("Add a node with specified PID").arg(arg!([PID]).required(true).value_parser(value_parser!(u64))))
+        .subcommand(Command::new("snapshot").about("Snapshot the log state").arg(arg!([PID]).required(false).default_value("0").value_parser(value_parser!(u64))))
         .get_matches();
 
     let frame;
@@ -38,6 +39,11 @@ async fn main() {
             println!("[CliClient] Node pid to add is {}", *pid);
             let reconfig_cmd = Reconfigure::new(*pid);
             frame = reconfig_cmd.to_frame();
+       }, 
+       Some(("snapshot", sub_matches)) => {
+            let pid = sub_matches.get_one::<u64>("PID").expect("[CliClient] snapshot command; pid was not a u64");
+            let snapshot_cmd = Snapshot::new(*pid);
+            frame = snapshot_cmd.to_frame();
        }, 
         _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
     }

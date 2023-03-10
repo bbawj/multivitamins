@@ -1,10 +1,13 @@
+use commitlog::LogOptions;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use omnipaxos_core::messages::Message::{BLE, SequencePaxos};
-use omnipaxos_core::omni_paxos::{OmniPaxosConfig, OmniPaxos, ReconfigurationRequest};
+use omnipaxos_core::omni_paxos::{OmniPaxosConfig, OmniPaxos, ReconfigurationRequest, CompactionErr};
 use omnipaxos_core::storage::Snapshot;
 use omnipaxos_core::util::LogEntry;
-use omnipaxos_storage::memory_storage::MemoryStorage;
+use omnipaxos_storage::persistent_storage::{PersistentStorageConfig, PersistentStorage};
+use serde::{Serialize, Deserialize};
+use sled::Config;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream, TcpSocket};
@@ -21,13 +24,13 @@ use crate::cli::response::Response;
 use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT, DEFAULT_ADDR, CHECK_STOPSIGN_TIMEOUT};
 
 
-#[derive(Clone, Debug)] // Clone and Debug are required traits.
+#[derive(Clone, Debug, Serialize, Deserialize)] // Clone and Debug are required traits.
 pub struct KeyValue {
     pub key: String,
     pub val: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KeyValueSnapshot {
     pub db: HashMap<String, String>,
 }
@@ -58,7 +61,7 @@ impl Snapshot<KeyValue> for KeyValueSnapshot {
 
 }
 
-pub type OmniPaxosKV = OmniPaxos<KeyValue, KeyValueSnapshot, MemoryStorage<KeyValue, KeyValueSnapshot>>;
+pub type OmniPaxosKV = OmniPaxos<KeyValue, KeyValueSnapshot, PersistentStorage<KeyValue, KeyValueSnapshot>>;
 
 pub struct OmniPaxosServer {
     pub pid: u64,  // The id of this server.
@@ -91,8 +94,13 @@ impl OmniPaxosServer {
             ..Default::default()
         };
 
-        let omni_paxos = omnipaxos_config.build(MemoryStorage::default());
-
+        // persistent storage
+        let log_path = format!("logs/server_{}_logs", pid);
+        let commitlog_options = LogOptions::new(log_path.clone());
+        let sled_options = Config::new().path(log_path.clone());
+        let storage_config = PersistentStorageConfig::with(log_path.to_string(), commitlog_options, sled_options);
+        let storage = PersistentStorage::open(storage_config);
+        let omni_paxos = omnipaxos_config.build(storage);
         // =================== The OmniPaxos instance is now set up. ===================
 
 
@@ -235,10 +243,6 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                 connection.write_frame(&response_frame).await.unwrap();
                 continue;
             },
-            Command::Response(response_msg) => {
-                println!("[OPServer {}] Received response: {:?}", pid, response_msg);
-                continue;
-            }
             Command::Reconfigure(reconfigure_message) => {
                 println!("[OPServer {}] Received reconfigure message {:?}", pid, reconfigure_message);
                 let new_pid = reconfigure_message.pid();
@@ -256,6 +260,34 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                         connection.write_frame(&error_frame).await?;
                     }
                 }
+            }
+            Command::Snapshot(snapshot_message) => {
+                println!("[OPServer {}] Received snapshot message {:?}", pid, snapshot_message);
+                // unsure if we want specific or just latest snapshot
+                let snapshot_idx = None;
+                let local_only = true;
+                match omni_paxos.lock().await.snapshot(snapshot_idx, local_only) {
+                    Ok(_) => {
+                        // save to persistent storage
+
+                    }
+                    Err(e) => {
+                        match e {
+                            CompactionErr::UndecidedIndex(_) => {
+                                // Our provided snapshot index is not decided yet. The currently decided index is `idx`.
+                            }
+                            // these 2 errors are related to Trimming instead
+                            CompactionErr::NotAllDecided(_) => unreachable!(),
+                            CompactionErr::NotCurrentLeader(_) => unreachable!()
+                        }
+                    }
+                }
+                let response_frame = Response::new("snapshot".to_string(), "OK".to_string()).to_frame();
+                connection.write_frame(&response_frame).await?;
+            },
+            Command::Response(response_msg) => {
+                println!("[OPServer {}] Received response: {:?}", pid, response_msg);
+                continue;
             }
             Command::Error(error_message) => {
                 println!("[OPServer {}] Received error: {:?}", pid, error_message);

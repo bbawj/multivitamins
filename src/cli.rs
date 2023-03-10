@@ -9,6 +9,7 @@ pub mod parse;
 pub mod put;
 pub mod reconfigure;
 pub mod response;
+pub mod snapshot;
 
 pub const COMMAND_LISTENER_ADDR: &str = "127.0.0.1";
 pub const COMMAND_LISTENER_PORT: &str = "60000";

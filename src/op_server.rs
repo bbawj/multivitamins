@@ -393,9 +393,14 @@ async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u
     let mut interval = time::interval(CHECK_STOPSIGN_TIMEOUT);
     loop {
         interval.tick().await;
+        if omni_paxos.lock().await.is_reconfigured().is_none() {
+            break None;
+        }
         // println!("[OPServer {}]: checking stopsign", {pid});
 
         let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = omni_paxos.lock().await.read_decided_suffix(0);
+        // I wonder why we need to loop through all the decided entries rather than calling
+        // is_reconfigured for the StopSign directly...
         if let Some(de) = decided_entries {
             for d in de {
                 match d {

@@ -6,7 +6,6 @@ use omnipaxos_core::storage::Snapshot;
 use omnipaxos_core::util::LogEntry;
 use omnipaxos_storage::memory_storage::MemoryStorage;
 use std::collections::HashMap;
-use std::future::Future;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream, TcpSocket};
 use tokio::time;
@@ -17,7 +16,6 @@ use crate::cli::Result;
 use crate::cli::command::Command;
 use crate::cli::connection::Connection;
 use crate::cli::error::Error;
-use crate::cli::frame::Frame;
 use crate::cli::op_message::OpMessage;
 use crate::cli::response::Response;
 use crate::{OUTGOING_MESSAGES_TIMEOUT, ELECTION_TIMEOUT, DEFAULT_ADDR, CHECK_STOPSIGN_TIMEOUT};
@@ -251,11 +249,11 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                 match omni_paxos.lock().await.reconfigure(rc) {
                     Ok(_) => {
                         let response_frame = Response::new("reconfigure".to_string(), "OK".to_string()).to_frame();
-                        connection.write_frame(&response_frame).await;
+                        connection.write_frame(&response_frame).await?;
                     }
                     Err(_) => {
                         let error_frame = Error::new("Failed to propose reconfiguration".to_string()).to_frame();
-                        connection.write_frame(&error_frame).await;
+                        connection.write_frame(&error_frame).await?;
                     }
                 }
             }

@@ -342,7 +342,7 @@ impl ToFromFrame for SnapshotType<KeyValue, KeyValueSnapshot> {
                 s.to_frame(frame);
             }
             // unsure what to do about this actually
-            SnapshotType::_Phantom(s) => todo!(),
+            SnapshotType::_Phantom(_) => (),
         }
         frame
     }

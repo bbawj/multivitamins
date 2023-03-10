@@ -1,15 +1,13 @@
-use clap::Error;
-use rand::seq::SliceRandom;
 use tokio::net::{TcpListener, TcpStream};
-use rand::{seq::IteratorRandom, thread_rng};
+use rand::seq::IteratorRandom;
 
-use rand::Rng;
-use std::{collections::HashMap, result};
+
+use std::{collections::HashMap};
 
 use crate::DEFAULT_ADDR;
 use crate::cli::parse::Parse;
 use crate::{
-    cli::{command::Command, connection::Connection, Result,
+    cli::{connection::Connection, Result,
         COMMAND_LISTENER_PORT, COMMAND_LISTENER_ADDR},
 };
 
@@ -87,7 +85,7 @@ impl CliServer {
                 println!("[CliServer] Connected to OPServer node {} at {}", server_num, rand_server_socket_addr);
 
                 // Send request to op_server
-                outbound_connection.write_frame(&inbound_frame).await;
+                outbound_connection.write_frame(&inbound_frame).await?;
                 println!("[CliServer] Forwarded frame to OPServer node {}: {:?}", server_num, inbound_frame);
 
                 // Wait for response

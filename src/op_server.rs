@@ -95,7 +95,7 @@ impl OmniPaxosServer {
         };
 
         // persistent storage
-        let log_path = format!("logs/server_{}_logs", pid);
+        let log_path = format!("logs/{}/server_{}_logs/", configuration_id, pid);
         let commitlog_options = LogOptions::new(log_path.clone());
         let sled_options = Config::new().path(log_path.clone());
         let storage_config = PersistentStorageConfig::with(log_path.to_string(), commitlog_options, sled_options);
@@ -440,17 +440,18 @@ async fn call_leader_election_periodically(omni_paxos: &Arc<Mutex<OmniPaxosKV>>)
     }
 }
 
-async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u64, prev_config_handles:&Vec<tokio::task::JoinHandle<()>>) -> Option<OmniPaxosServer>{
+async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u64, prev_config_handles:&Vec<tokio::task::JoinHandle<()>>) -> Result<()>{
     let handles_to_abort = prev_config_handles;
     let mut interval = time::interval(CHECK_STOPSIGN_TIMEOUT);
     loop {
         interval.tick().await;
-        if omni_paxos.lock().await.is_reconfigured().is_none() {
-            break None;
-        }
-        // println!("[OPServer {}]: checking stopsign", {pid});
-
-        let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = omni_paxos.lock().await.read_decided_suffix(0);
+        let op = omni_paxos.lock().await;
+        if op.is_reconfigured().is_none() {
+            continue;
+         }
+         // println!("[OPServer {}]: checking stopsign", {pid});
+ 
+        let decided_entries: Option<Vec<LogEntry<KeyValue, KeyValueSnapshot>>> = op.read_decided_suffix(0);
         // I wonder why we need to loop through all the decided entries rather than calling
         // is_reconfigured for the StopSign directly...
         if let Some(de) = decided_entries {
@@ -461,17 +462,11 @@ async fn check_stopsign_periodically(omni_paxos: Arc<Mutex<OmniPaxosKV>>, pid: u
                         let new_configuration = stopsign.nodes;
                         if new_configuration.contains(&pid) {
                             // we are in new configuration, start new instance
-                            let mut new_topology = HashMap::new();
-                            for id in 0..(new_configuration.len() as u64) {
-                                new_topology.insert(1+id, format!("{}:{}", DEFAULT_ADDR, id + 50000));
-                            }
-                            println!("The new topology has size: {}", &new_topology.len());
-                            let new_op_server = OmniPaxosServer::new(stopsign.config_id, new_topology, pid).await;
                             // abort old process handles
                             for handle in handles_to_abort {
                                 handle.abort();
                             }
-                            return Some(new_op_server);
+                            return Ok(());
                         }
                     }
                     _ => {}
@@ -487,20 +482,29 @@ pub fn run_recovery(pid: u64, op: OmniPaxosServer) -> BoxFuture<'static, Vec<tok
         let op_lock_run_clone = Arc::clone(&op_lock);
         let op_lock_reconfig_clone = Arc::clone(&op_lock);
         let op_lock_check_clone = Arc::clone(&op_lock);
-        let prev_config_handles = run(pid, op_lock_run_clone, op.listener, op.topology).await;
-        let new_op_server = check_stopsign_periodically(op_lock_reconfig_clone, pid, &prev_config_handles).await;
-        if new_op_server.is_some() {
-            let new_op_server = new_op_server.unwrap();
-            let new_config = &op_lock_check_clone.lock().await.is_reconfigured();
-            if new_config.is_some() {
-                println!("[OPServer {}]: running new configuration: {:?}", pid, new_config.as_ref().unwrap().nodes);
-            }
-            run_recovery(pid, new_op_server).await;
-        }
+        let prev_config_handles = run(pid, op_lock_run_clone, op.listener, op.topology.clone()).await;
+        match check_stopsign_periodically(op_lock_reconfig_clone, pid, &prev_config_handles).await {
+            Ok(_) => {
+                for handle in prev_config_handles {
+                    assert!(handle.await.unwrap_err().is_cancelled());
+                }
 
-        for handle in prev_config_handles {
-            assert!(handle.await.unwrap_err().is_cancelled());
-        }
+                    drop(op_lock);
+
+                    if let Some(new_config) = &op_lock_check_clone.lock().await.is_reconfigured() {
+                        println!("[OPServer {}]: running new configuration: {:?}", pid, new_config.nodes);
+                        let mut new_topology = HashMap::new();
+                        for id in 0..(new_config.nodes.len() as u64) {
+                            new_topology.insert(1+id, format!("{}:{}", DEFAULT_ADDR, id + 50000));
+                        }
+                        let new_op_server = OmniPaxosServer::new(new_config.config_id, new_topology, pid).await;
+                        run_recovery(pid, new_op_server).await;
+                    }
+                }
+                Err(e) => {
+                    println!("[OPServer {}]: error in check_stopsign_periodically {:?}", pid, e);
+                }
+            }
 
         // return prev_config_handles;
         return Vec::new();

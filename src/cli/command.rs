@@ -3,15 +3,23 @@ use omnipaxos_core::messages::Message;
 use crate::op_server::{KeyValue, KeyValueSnapshot};
 
 use super::{
-    error::Error, frame::Frame, get::Get, op_message::OpMessage, parse::Parse, put::Put,
-    reconfigure::Reconfigure, response::Response, snapshot::Snapshot,
+    error::Error,
+    frame::Frame,
+    get::Get,
+    op_message::OpMessage,
+    parse::Parse,
+    put::Put,
+    reconfigure::Reconfigure,
+    response::Response,
+    snapshot::{ReadSnapshot, SaveSnapshot},
 };
 
 pub enum Command {
     Get(Get),
     Put(Put),
     Reconfigure(Reconfigure),
-    Snapshot(Snapshot),
+    SaveSnapshot(SaveSnapshot),
+    ReadSnapshot(ReadSnapshot),
     Response(Response),
     OpMessage(Message<KeyValue, KeyValueSnapshot>),
     Error(Error),
@@ -27,7 +35,8 @@ impl Command {
             "get" => Command::Get(Get::parse_frame(&mut parse)?),
             "put" => Command::Put(Put::parse_frame(&mut parse)?),
             "reconfigure" => Command::Reconfigure(Reconfigure::parse_frame(&mut parse)?),
-            "snapshot" => Command::Snapshot(Snapshot::parse_frame(&mut parse)?),
+            "savesnapshot" => Command::SaveSnapshot(SaveSnapshot::parse_frame(&mut parse)?),
+            "readsnapshot" => Command::ReadSnapshot(ReadSnapshot::parse_frame(&mut parse)?),
             "response" => Command::Response(Response::parse_frame(&mut parse)?),
             "opmessage" => Command::OpMessage(OpMessage::from_frame(&mut parse)?),
             "error" => Command::Error(Error::parse_frame(&mut parse)?),

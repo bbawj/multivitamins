@@ -1,7 +1,7 @@
 
 use clap::{arg, command, Command, value_parser};
 use multivitamins::cli::{
-    get::Get, put::Put, client, reconfigure::Reconfigure, snapshot::Snapshot};
+    get::Get, put::Put, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}};
 
 #[tokio::main]
 async fn main() {
@@ -13,7 +13,9 @@ async fn main() {
         .subcommand(Command::new("get").about("Get a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)))
         .subcommand(Command::new("put").about("Set a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)).arg(arg!([VALUE]).required(true)))
         .subcommand(Command::new("reconfigure").about("Add a node with specified PID").arg(arg!([PID]).required(true).value_parser(value_parser!(u64))))
-        .subcommand(Command::new("snapshot").about("Snapshot the log state").arg(arg!([PID]).required(false).default_value("0").value_parser(value_parser!(u64))))
+        .subcommand(Command::new("snapshot").about("Snapshot the log state").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64)))
+                    .subcommand(Command::new("save"))
+                    .subcommand(Command::new("read").arg(arg!([FILE_PATH]).required(true))))
         .get_matches();
 
     let frame;
@@ -41,9 +43,20 @@ async fn main() {
             frame = reconfig_cmd.to_frame();
        }, 
        Some(("snapshot", sub_matches)) => {
-            let pid = sub_matches.get_one::<u64>("PID").expect("[CliClient] snapshot command; pid was not a u64");
-            let snapshot_cmd = Snapshot::new(*pid);
-            frame = snapshot_cmd.to_frame();
+           let target_node = sub_matches.get_one::<u64>("TARGET_NODE").expect("[CliClient] snapshot command; target node was not a u64");
+           match sub_matches.subcommand() {
+               Some(("save", _)) => {
+                   let snapshot_cmd = SaveSnapshot::new(*target_node);
+                   frame = snapshot_cmd.to_frame();
+               }
+               Some(("read", sub_sub_matches)) => {
+                   let file_path = sub_sub_matches.get_one::<String>("FILE_PATH").expect("[CliClient] snapshot command; file path was not a string");
+                   let snapshot_cmd = ReadSnapshot::new(*target_node, file_path.to_string());
+                   frame = snapshot_cmd.to_frame();
+               }
+               _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
+
+           }
        }, 
         _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
     }

@@ -53,7 +53,7 @@ impl CliServer {
             let mut target_node = 0;
 
             match &command_name[..] {
-                "put" | "get" | "snapshot" => {
+                "put" | "get" | "savesnapshot" | "readsnapshot" => {
                     target_node = parse.next_int()?;
                 }   
                 "reconfigure" => {

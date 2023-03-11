@@ -7,7 +7,7 @@ use omnipaxos_core::storage::Snapshot;
 use omnipaxos_core::util::LogEntry;
 use omnipaxos_storage::persistent_storage::{PersistentStorageConfig, PersistentStorage};
 use serde::{Serialize, Deserialize};
-use sled::Config;
+use sled::{Config, IVec};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream, TcpSocket};
@@ -261,20 +261,48 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                     }
                 }
             }
-            Command::Snapshot(snapshot_message) => {
-                println!("[OPServer {}] Received snapshot message {:?}", pid, snapshot_message);
+            Command::SaveSnapshot(save_snapshot_message) => {
+                println!("[OPServer {}] Received save snapshot message {:?}", pid, save_snapshot_message);
                 // unsure if we want specific or just latest snapshot
                 let snapshot_idx = None;
                 let local_only = true;
-                match omni_paxos.lock().await.snapshot(snapshot_idx, local_only) {
+                let mut op = omni_paxos.lock().await;
+                match op.snapshot(snapshot_idx, local_only) {
                     Ok(_) => {
                         // save to persistent storage
+                        println!("[OPServer {}] Snapshot OK", pid);
+                        let compacted_idx = op.get_compacted_idx();
+                        println!("[OPServer {}] Snapshot ID {}", pid, compacted_idx);
 
+                        match op.read(compacted_idx-1) {
+                            Some(LogEntry::Snapshotted(s)) => {
+                                println!("[OPServer {}] Read Snapshot OK", pid);
+                                let snapshot = s.snapshot;
+                                let db_path = format!("snapshots/{}/{}", pid, compacted_idx);
+                                let snapshot_db = sled::open(db_path.clone()).unwrap();
+                                println!("[OPServer {}] Open DB OK", pid);
+                                for (k, v) in snapshot.db {
+                                    snapshot_db.insert(&k[..], &v[..])?;
+                                }
+                                snapshot_db.flush_async().await?;
+                                let response_frame = Response::new("snapshot".to_string(), format!("saved on OPServer {} as {}", pid, db_path).to_string()).to_frame();
+                                connection.write_frame(&response_frame).await?;
+                            }
+                            None => {
+                                let error_frame = Error::new("Log entry does not exist".to_string()).to_frame();
+                                connection.write_frame(&error_frame).await?;
+                            }
+                            _ => {
+                                let error_frame = Error::new("Failed to create snapshot".to_string()).to_frame();
+                                connection.write_frame(&error_frame).await?;
+                            }
+                        }
                     }
                     Err(e) => {
                         match e {
-                            CompactionErr::UndecidedIndex(_) => {
+                            CompactionErr::UndecidedIndex(e) => {
                                 // Our provided snapshot index is not decided yet. The currently decided index is `idx`.
+                                println!("[OPServer {}] Error saving snapshot {:?}", pid, e);
                             }
                             // these 2 errors are related to Trimming instead
                             CompactionErr::NotAllDecided(_) => unreachable!(),
@@ -282,9 +310,33 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                         }
                     }
                 }
-                let response_frame = Response::new("snapshot".to_string(), "OK".to_string()).to_frame();
-                connection.write_frame(&response_frame).await?;
             },
+            Command::ReadSnapshot(read_snapshot_message) => {
+                println!("[OPServer {}] Received read snapshot message {:?}", pid, read_snapshot_message);
+                let snapshot_db = match sled::open(read_snapshot_message.file_path()) {
+                    Ok(db) => db,
+                    Err(_) => {
+                        let error_frame = Error::new("Failed to open path to snapshot".to_string()).to_frame();
+                        connection.write_frame(&error_frame).await?;
+                        continue
+                    }
+                };
+                let res = snapshot_db.export();
+                let mut pairs: String = Default::default();
+                for i in res {
+                    let entries = i.2;
+                    for line in entries {
+                        let k = &line[0];
+                        let v = &line[1];
+                        let key = std::str::from_utf8(&k)?.to_owned();
+                        let value = std::str::from_utf8(&v)?.to_owned();
+                        let pair = format!("{{key: {}, value: {}}}, ", key, value);
+                        pairs.push_str(&pair);
+                    }
+                }
+                let response_frame = Response::new("snapshot".to_string(), pairs).to_frame();
+                connection.write_frame(&response_frame).await?;
+            }
             Command::Response(response_msg) => {
                 println!("[OPServer {}] Received response: {:?}", pid, response_msg);
                 continue;

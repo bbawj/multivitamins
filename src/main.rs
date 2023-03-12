@@ -35,7 +35,7 @@ async fn main() {
     // The main work that this function does.
     let node_handler: Vec<tokio::task::JoinHandle<Vec<tokio::task::JoinHandle<()>>>> = spawn_local_nodes(configuration_id, topology.clone()).await;
     spawn_cli_server(topology.clone()).await;
-    multivitamins::test::run_tests(node_handler).await;
+    // multivitamins::test::run_tests(node_handler).await;
 }
 
 // Spawn a new thread for each node in the cluster, and run the node on that thread.
@@ -66,7 +66,7 @@ async fn spawn_local_nodes(configuration_id: u32, topology: HashMap<u64, String>
 // Start the CLI server
 async fn spawn_cli_server(topology: HashMap<u64, String>) {
     let mut cli_server = CliServer::new(topology.clone());
-    tokio::spawn(async move {
+    // tokio::spawn(async move {
         cli_server.listen().await;
-    });
+    // });
 }

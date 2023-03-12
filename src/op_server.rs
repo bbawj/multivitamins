@@ -656,12 +656,5 @@ pub async fn run(pid: u64, op_lock: Arc<Mutex<OmniPaxosKV>>, topology: HashMap<u
         call_leader_election_periodically(&op_lock_election_clone).await;
     }));
 
-    // let op_lock_reconfig_clone = Arc::clone(&op_lock);
-    // let handle_arc = Arc::new(Mutex::new(handles));
-    // let handle_clone = Arc::clone(&handle_arc);
-    // handles.push(tokio::spawn(async move {
-    //     check_stopsign_periodically(&op_lock_reconfig_clone, pid, handle_clone).await;
-    // }));
-
     return handles;
 }

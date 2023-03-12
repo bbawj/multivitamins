@@ -8,11 +8,14 @@ use omnipaxos_core::util::LogEntry;
 use omnipaxos_storage::persistent_storage::{PersistentStorageConfig, PersistentStorage};
 use serde::{Serialize, Deserialize};
 use sled::Config;
-use std::collections::HashMap;
+use tokio::sync::mpsc::Sender;
+use std::collections::{HashMap, HashSet};
+use std::str::Utf8Error;
+use std::fmt;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream, TcpSocket};
 use tokio::time;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
 
 use crate::cli::Result;
@@ -68,7 +71,6 @@ pub struct OmniPaxosServer {
     pub socket_addr: String,  // The socket address (ip_address:port) of this server (which is also topology[pid])
     pub omni_paxos: OmniPaxosKV,  // The OmniPaxos instance that this server is running.
     pub topology: HashMap<u64, String>,  // The topology of the cluster, mapping node ids to ports.
-    pub listener: TcpListener,  // The listener for incoming messages.
 }
 
 // Our implementation of an OmniPaxos server, that listens for incoming messages from a TCP socket.
@@ -103,73 +105,148 @@ impl OmniPaxosServer {
         let omni_paxos = omnipaxos_config.build(storage);
         // =================== The OmniPaxos instance is now set up. ===================
 
-
-        // Create a listener for incoming messages.
         let socket_addr = topology.get(&pid).unwrap().clone();
-        // set reuseport with Tokio TcpSocket
-        let socket = TcpSocket::new_v4().unwrap();
-        socket.set_reuseport(true).expect("Failed to set reuseport on TcpSocket");
-        socket.bind(socket_addr.parse().unwrap()).expect("Failed to bind");
-        let listener = socket.listen(1024).unwrap();
-        // set non-blocking using std::net::TcpListener
-        let std_listener = listener.into_std().unwrap();
-        
-        // let std_listener = std::net::TcpListener::bind(&socket_addr).expect("Failed to bind");
-        std_listener.set_nonblocking(true).expect("Failed to initialize non-blocking");
-        let listener = TcpListener::from_std(std_listener).expect("Failed to convert to async");
         
         Self {
             pid,
             socket_addr,
             omni_paxos,
             topology,
-            listener,
         }
 
     }
 
 }
 
+async fn process_until_disconnect(tx: Sender<bool>, listener: &TcpListener, omni_paxos: &Arc<Mutex<OmniPaxosKV>>, topology: HashMap<u64, String>, pid: u64) -> Option<tokio::task::JoinHandle<()>> {
+    let connection_handle; 
+
+    match listener.accept().await {
+        Ok((stream, addr)) => {
+
+            // Received a new connection from a client.
+
+            println!("[OPServer {}] Received connection from {}", pid, addr);
+            let omni_paxos = Arc::clone(omni_paxos);
+
+            let processor_topology = topology.clone();
+
+            connection_handle = tokio::spawn(async move {
+                let res = process_incoming_connection(
+                    &omni_paxos, 
+                    stream,
+                    pid,
+                    processor_topology,
+                    ).await;
+
+                match res {
+                    Ok(_) => todo!(),
+                    Err(e) => {
+                        match e {
+                            ProcessConnectionError::Disconnect => {
+                                // disconnect = true;
+                                println!("[OPServer {}]: got disconnect error", pid);
+                                tx.send(true).await.unwrap();
+                            }
+                            _ => {
+                                println!("[OPServer {}] Error while processing incoming message: {:?}", pid, e);
+                            }
+                        }
+                    }
+                }
+            });
+        },
+        Err(e) => {
+            println!("[OPServer {}] Error while listening to message: {:?}", pid, e);
+            return None;
+        }
+    };
+
+    return Some(connection_handle);
+}
 
 async fn listen(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, pid: u64, topology: HashMap<u64, String>) {
     
     println!("[OPServer {}] Begin listening for incoming messages", pid);
+    let mut disconnect = false;
+    let mut connection_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
+    let (tx, mut rx) = mpsc::channel::<bool>(32);
     loop {
-        match listener.accept().await {
-            Ok((stream, addr)) => {
-
-                // Received a new connection from a client.
-
-                println!("[OPServer {}] Received connection from {}", pid, addr);
-                let omni_paxos = Arc::clone(omni_paxos);
-
-                let processor_topology = topology.clone();
-                tokio::spawn(async move {
-                    let res = process_incoming_connection(
-                        &omni_paxos, 
-                        stream,
-                        pid,
-                        processor_topology,
-                    ).await;
-
-                    if let Err(e) = res {
-                        println!("[OPServer {}] Error while processing incoming message: {:?}", pid, e);
-                    }
-                });
-            },
-            Err(e) => {
-                println!("[OPServer {}] Error while listening to message: {:?}", pid, e);
+        let tx2 = tx.clone();
+        if disconnect {
+            println!("[OPServer {}]: disconnecting", pid);
+            for handle in &connection_handles {
+                    handle.abort();
             }
+            break
         }
+
+        tokio::select! {
+            maybe_handle = process_until_disconnect(tx2, &listener, omni_paxos, topology.clone(), pid) => {
+                if maybe_handle.is_some() {
+                    connection_handles.push(maybe_handle.unwrap());
+                }
+            }
+            Some(disconnect_request) = rx.recv() => {
+                if disconnect_request {
+                    println!("setting disconnect to true");
+                    disconnect = true;
+                }
+            }
+        };
     }
 
 }
 
+#[derive(Debug)]
+pub enum ProcessConnectionError {
+    Disconnect,
+    SaveSnapshotError(sled::Error),
+    ReadSnapshotError(Utf8Error),
+    Other(crate::cli::Error)
+}
+
+impl From<crate::cli::Error> for ProcessConnectionError {
+    fn from(src: crate::cli::Error) -> ProcessConnectionError {
+        ProcessConnectionError::Other(src.into())
+    }
+}
+
+impl From<std::io::Error> for ProcessConnectionError {
+    fn from(src: std::io::Error) -> ProcessConnectionError {
+        ProcessConnectionError::Other(src.into())
+    }
+}
+
+impl From<sled::Error> for ProcessConnectionError {
+    fn from(src: sled::Error) -> ProcessConnectionError {
+        ProcessConnectionError::SaveSnapshotError(src.into())
+    }
+}
+
+impl From<Utf8Error> for ProcessConnectionError {
+    fn from(src: Utf8Error) -> ProcessConnectionError {
+        ProcessConnectionError::ReadSnapshotError(src.into())
+    }
+}
+
+impl fmt::Display for ProcessConnectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProcessConnectionError::Disconnect => "process connection error; disconnect requested".fmt(f),
+            ProcessConnectionError::SaveSnapshotError(e) => write!(f, "process connection error; save snapshot failed with {:?}", e),
+            ProcessConnectionError::ReadSnapshotError(e) => write!(f, "process connection error; read snapshot failed with {:?}", e),
+            ProcessConnectionError::Other(err) => err.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for ProcessConnectionError {}
 
 // Method that handles incoming messages, that gets called by the listen method,
 // in a separate thread, when a new message is received.
-async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: TcpStream, pid: u64, topology: HashMap<u64, String>) -> Result<()> {
+async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: TcpStream, pid: u64, topology: HashMap<u64, String>) -> std::result::Result<(), ProcessConnectionError> {
     
     let mut connection = Connection::new(stream);
 
@@ -345,6 +422,12 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                 println!("[OPServer {}] Received error: {:?}", pid, error_message);
                 continue;
             }
+            Command::Disconnect(disconnect_message) => {
+                println!("[OPServer {}] Received disconnect: {:?}", pid, disconnect_message);
+                let response_frame = Response::new("disconnect".to_string(), "OK".to_string()).to_frame();
+                connection.write_frame(&response_frame).await.unwrap();
+                return Err(ProcessConnectionError::Disconnect);
+            }
         }
     }
 
@@ -362,11 +445,13 @@ async fn send_outgoing_msgs_periodically(
 
     // Store the connections in a mutable reference, so that we can modify it.
     let mut connections: HashMap<u64, Connection> = HashMap::new();
+    let mut failed_nodes: HashSet<u64> = HashSet::new();
 
     loop {
         outgoing_interval.tick().await;
         
-        let messages = omni_paxos.lock().await.outgoing_messages();
+        let mut op = omni_paxos.lock().await;
+        let messages = op.outgoing_messages();
 
         for msg in messages {
 
@@ -381,9 +466,17 @@ async fn send_outgoing_msgs_periodically(
                         match TcpStream::connect(&socket_addr).await {
                             Ok(new_stream) => {
                                 connections.insert(receiver, Connection::new(new_stream));
+                                if failed_nodes.contains(&receiver) {
+                                    failed_nodes.remove(&receiver);
+                                    op.reconnected(receiver);
+                                    println!("[OPServer {}]: Reconnected with {}", pid, receiver);
+                                }
                             }
                             Err(e) => { match e.kind() {
-                                std::io::ErrorKind::ConnectionRefused => continue,
+                                std::io::ErrorKind::ConnectionRefused => {
+                                    // connections.remove(&receiver);
+                                    continue;
+                                }
                                 _ => panic!("{}", e),
                             }
                             }
@@ -407,6 +500,9 @@ async fn send_outgoing_msgs_periodically(
                         Ok(_) => {}
                         Err(e) => {
                             println!("[OPServer {}] Error writing BLE Message frame: {:?}", pid, e);
+                            connections.remove(&receiver);
+                            failed_nodes.insert(receiver);
+                            continue;
                         }
                     }
                 }
@@ -419,6 +515,9 @@ async fn send_outgoing_msgs_periodically(
                         Ok(_) => {}
                         Err(e) => {
                             // println!("[OPServer {}] Error writing BLE Message frame: {:?}", pid, e);
+                            connections.remove(&receiver);
+                            failed_nodes.insert(receiver);
+                            continue;
                         }
                     }
                 }
@@ -484,7 +583,7 @@ pub fn run_recovery(pid: u64, op: OmniPaxosServer) -> BoxFuture<'static, Vec<tok
         let op_lock_run_clone = Arc::clone(&op_lock);
         let op_lock_reconfig_clone = Arc::clone(&op_lock);
         let op_lock_check_clone = Arc::clone(&op_lock);
-        let prev_config_handles = run(pid, op_lock_run_clone, op.listener, op.topology.clone()).await;
+        let prev_config_handles = run(pid, op_lock_run_clone, op.topology.clone()).await;
         match check_stopsign_periodically(op_lock_reconfig_clone, pid, &prev_config_handles).await {
             Ok(_) => {
                 for handle in prev_config_handles {
@@ -513,21 +612,40 @@ pub fn run_recovery(pid: u64, op: OmniPaxosServer) -> BoxFuture<'static, Vec<tok
     }.boxed()
 }
 
-pub async fn run(pid: u64, op_lock: Arc<Mutex<OmniPaxosKV>>, listener: TcpListener, topology: HashMap<u64, String>) -> Vec<tokio::task::JoinHandle<()>>{
+pub async fn listen_until_disconnect(pid: u64, op_lock: &Arc<Mutex<OmniPaxosKV>>, topology: HashMap<u64, String>) -> Vec<tokio::task::JoinHandle<()>> {
+    loop {
+        // Create a listener for incoming messages.
+        let topology_clone = topology.clone();
+        let socket_addr = topology_clone.get(&pid).unwrap().clone();
+        // set reuseport with Tokio TcpSocket
+        let socket = TcpSocket::new_v4().unwrap();
+        socket.set_reuseport(true).expect("Failed to set reuseport on TcpSocket");
+        socket.bind(socket_addr.parse().unwrap()).expect("Failed to bind");
+        let listener = socket.listen(1024).unwrap();
+        // set non-blocking using std::net::TcpListener
+        let std_listener = listener.into_std().unwrap();
+
+        // let std_listener = std::net::TcpListener::bind(&socket_addr).expect("Failed to bind");
+        std_listener.set_nonblocking(true).expect("Failed to initialize non-blocking");
+        let listener = TcpListener::from_std(std_listener).expect("Failed to convert to async");
+        listen(&op_lock, listener, pid, topology_clone).await;
+        time::sleep(time::Duration::from_secs(30)).await;
+    }
+}
+
+pub async fn run(pid: u64, op_lock: Arc<Mutex<OmniPaxosKV>>, topology: HashMap<u64, String>) -> Vec<tokio::task::JoinHandle<()>>{
     // let op_lock = Arc::new(Mutex::new(op.omni_paxos));
     let mut handles = Vec::new();
 
     // Listen to incoming connections
-    let listener = listener;
     let op_lock_listener_clone = Arc::clone(&op_lock);
-    let listener_topology = topology.clone();
+    let sender_topology = topology.clone();
     handles.push(tokio::spawn(async move {
-        listen(&op_lock_listener_clone, listener, pid, listener_topology).await;
+        listen_until_disconnect(pid, &op_lock_listener_clone, topology).await;
     }));
 
     // Periodically send outgoing messages if any
     let op_lock_sender_clone = Arc::clone(&op_lock);
-    let sender_topology = topology.clone();
     handles.push(tokio::spawn(async move {
         send_outgoing_msgs_periodically(&op_lock_sender_clone, sender_topology, pid).await;
     }));

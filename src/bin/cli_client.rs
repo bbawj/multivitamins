@@ -1,7 +1,7 @@
 
 use clap::{arg, command, Command, value_parser};
 use multivitamins::cli::{
-    get::Get, put::Put, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}};
+    get::Get, put::Put, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}, disconnect::Disconnect};
 
 #[tokio::main]
 async fn main() {
@@ -16,6 +16,7 @@ async fn main() {
         .subcommand(Command::new("snapshot").about("Snapshot the log state").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64)))
                     .subcommand(Command::new("save"))
                     .subcommand(Command::new("read").arg(arg!([FILE_PATH]).required(true))))
+        .subcommand(Command::new("disconnect").about("Disconnect a node").arg(arg!([PID]).required(true).value_parser(value_parser!(u64))))
         .get_matches();
 
     let frame;
@@ -57,6 +58,12 @@ async fn main() {
                _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
 
            }
+       }, 
+       Some(("disconnect", sub_matches)) => {
+            let pid = sub_matches.get_one::<u64>("PID").expect("[CliClient] disconnect command; pid was not a u64");
+            println!("[CliClient] Node pid to disconnect is {}", *pid);
+            let disconnect_cmd = Disconnect::new(*pid);
+            frame = disconnect_cmd.to_frame();
        }, 
         _ => unreachable!("[CliClient] Exhausted list of subcommands and subcommand_required prevents `None`"),
     }

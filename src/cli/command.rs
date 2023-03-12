@@ -3,6 +3,7 @@ use omnipaxos_core::messages::Message;
 use crate::op_server::{KeyValue, KeyValueSnapshot};
 
 use super::{
+    disconnect::Disconnect,
     error::Error,
     frame::Frame,
     get::Get,
@@ -20,6 +21,7 @@ pub enum Command {
     Reconfigure(Reconfigure),
     SaveSnapshot(SaveSnapshot),
     ReadSnapshot(ReadSnapshot),
+    Disconnect(Disconnect),
     Response(Response),
     OpMessage(Message<KeyValue, KeyValueSnapshot>),
     Error(Error),
@@ -37,6 +39,7 @@ impl Command {
             "reconfigure" => Command::Reconfigure(Reconfigure::parse_frame(&mut parse)?),
             "savesnapshot" => Command::SaveSnapshot(SaveSnapshot::parse_frame(&mut parse)?),
             "readsnapshot" => Command::ReadSnapshot(ReadSnapshot::parse_frame(&mut parse)?),
+            "disconnect" => Command::Disconnect(Disconnect::parse_frame(&mut parse)?),
             "response" => Command::Response(Response::parse_frame(&mut parse)?),
             "opmessage" => Command::OpMessage(OpMessage::from_frame(&mut parse)?),
             "error" => Command::Error(Error::parse_frame(&mut parse)?),

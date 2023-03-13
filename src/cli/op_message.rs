@@ -318,14 +318,12 @@ impl ToFromFrame for KeyValue {
     fn to_frame<'a>(&'a self, frame: &'a mut Frame) -> &mut Frame {
         frame.push_string(&self.key);
         frame.push_string(&self.val);
-        // frame.push_int(self.value);
         frame
     }
 
     fn from_frame(parse: &mut Parse) -> crate::cli::Result<OpMessage> {
         let key = parse.next_string()?;
         let val = parse.next_string()?;
-        // let value = parse.next_int()?;
         Ok(OpMessage::KeyValue(KeyValue { key, val }))
     }
 }
@@ -357,6 +355,14 @@ impl ToFromFrame for SnapshotType<KeyValue, KeyValueSnapshot> {
                     _ => panic!(),
                 };
                 Ok(OpMessage::SnapshotType(Self::Complete(kv_snapshot)))
+            }
+            "delta" => {
+                let kv_snapshot_message = KeyValueSnapshot::from_frame(parse)?;
+                let kv_snapshot = match kv_snapshot_message {
+                    OpMessage::KeyValueSnapshot(s) => s,
+                    _ => panic!(),
+                };
+                Ok(OpMessage::SnapshotType(Self::Delta(kv_snapshot)))
             }
             _ => panic!("invalid snapshot_type parsed"),
         }

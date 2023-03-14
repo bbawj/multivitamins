@@ -468,7 +468,6 @@ async fn send_outgoing_msgs_periodically(
                                 connections.insert(receiver, Connection::new(new_stream));
                                 if failed_nodes.contains(&receiver) {
                                     failed_nodes.remove(&receiver);
-                                    op.reconnected(receiver);
                                     println!("[OPServer {}]: Reconnected with {}", pid, receiver);
                                 }
                             }
@@ -629,7 +628,9 @@ pub async fn listen_until_disconnect(pid: u64, op_lock: &Arc<Mutex<OmniPaxosKV>>
         std_listener.set_nonblocking(true).expect("Failed to initialize non-blocking");
         let listener = TcpListener::from_std(std_listener).expect("Failed to convert to async");
         listen(&op_lock, listener, pid, topology_clone).await;
-        time::sleep(time::Duration::from_secs(30)).await;
+        time::sleep(time::Duration::from_secs(20)).await;
+        // call fail_recovery in order to sync any logs
+        op_lock.lock().await.fail_recovery();
     }
 }
 

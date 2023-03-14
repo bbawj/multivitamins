@@ -112,7 +112,7 @@ impl CliServer {
                 println!("[CliServer] TCP connection error to OPServer node {}", server_num);
 
                 // TCP connection to node died, update local topology
-                self.topology.remove(&server_num);
+                // self.topology.remove(&server_num);
 
                 println!("[CliServer] OPServer node {} removed from local topology" , server_num);
             }

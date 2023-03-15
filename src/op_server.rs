@@ -244,6 +244,40 @@ impl fmt::Display for ProcessConnectionError {
 
 impl std::error::Error for ProcessConnectionError {}
 
+
+
+fn log_entries_to_kv(log_entries: Vec<LogEntry<KeyValue, KeyValueSnapshot>>) -> HashMap<String, String> {
+    let mut kv_store = HashMap::new();
+    for ent in log_entries {
+        match ent {
+            LogEntry::Decided(kv) => {
+                kv_store.insert(kv.key, kv.val);
+            }
+            _ => {}
+        }
+    }
+    kv_store
+}
+
+fn get_val_from_log_entries(log_entries: Vec<LogEntry<KeyValue, KeyValueSnapshot>>, key: &str) -> Option<String> {
+    let kv_store = log_entries_to_kv(log_entries);
+    let option_val = kv_store.get(key);
+
+    match option_val {
+        Some(val) => {
+            if val.len() == 0 {
+                None
+            } else {
+                Some(val.to_string())
+            }
+        },
+        None => None
+    }
+}
+
+
+
+
 // Method that handles incoming messages, that gets called by the listen method,
 // in a separate thread, when a new message is received.
 async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, stream: TcpStream, pid: u64, topology: HashMap<u64, String>) -> std::result::Result<(), ProcessConnectionError> {
@@ -285,17 +319,7 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
     
                 match maybe_log_entries {
                     Some(log_entries) => {
-                        let mut kv_store = HashMap::new();
-                        for ent in log_entries {
-                            match ent {
-                                LogEntry::Decided(kv) => {
-                                    kv_store.insert(kv.key, kv.val);
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        let option_val = kv_store.get(key);
+                        let option_val = get_val_from_log_entries(log_entries, key);
                         let response_frame = match option_val {
                             Some(val) => Response::new(key.to_string(), val.to_string()).to_frame(),
                             None => Error::new(format!("Key {} is not found", key)).to_frame(),
@@ -319,6 +343,42 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                 let response_frame = Response::new(key.to_string(), val.to_string()).to_frame();
                 connection.write_frame(&response_frame).await.unwrap();
                 continue;
+            },
+            Command::Delete(delete_msg) => {
+                println!("[OPServer {}] Received delete message: {:?}", pid, delete_msg);
+                let key = delete_msg.key();
+
+                let maybe_log_entries = 
+                    omni_paxos.lock().await
+                    .read_decided_suffix(0);
+    
+                match maybe_log_entries {
+                    Some(log_entries) => {
+                        let option_val = get_val_from_log_entries(log_entries, key);
+                        let response_frame = match option_val {
+
+                            // If there is a valid value for this key
+                            Some(val) => {
+                                let kv_to_store = KeyValue { key: key.to_string(), val: "".to_string() };
+                                omni_paxos.lock().await.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
+                                let response_frame = Response::new("delete".to_string(), "OK".to_string()).to_frame();
+                                connection.write_frame(&response_frame).await.unwrap();
+                                continue;
+                            },
+
+                            // If there is no valid value for this key
+                            None => Error::new(format!("Key {} is not found", key)).to_frame(),
+                        };
+                        connection.write_frame(&response_frame).await.unwrap();
+                        continue;
+                    },
+                    None => {
+                        let error = format!("Key {} is not found", key);
+                        let error_frame = Error::new(error).to_frame();
+                        connection.write_frame(&error_frame).await.unwrap();
+                        continue;
+                    },
+                }
             },
             Command::Reconfigure(reconfigure_message) => {
                 println!("[OPServer {}] Received reconfigure message {:?}", pid, reconfigure_message);

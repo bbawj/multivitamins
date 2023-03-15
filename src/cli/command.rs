@@ -10,6 +10,7 @@ use super::{
     op_message::OpMessage,
     parse::Parse,
     put::Put,
+    delete::Delete,
     reconfigure::Reconfigure,
     response::Response,
     snapshot::{ReadSnapshot, SaveSnapshot},
@@ -18,6 +19,7 @@ use super::{
 pub enum Command {
     Get(Get),
     Put(Put),
+    Delete(Delete),
     Reconfigure(Reconfigure),
     SaveSnapshot(SaveSnapshot),
     ReadSnapshot(ReadSnapshot),
@@ -36,6 +38,7 @@ impl Command {
         let command = match &command_name[..] {
             "get" => Command::Get(Get::parse_frame(&mut parse)?),
             "put" => Command::Put(Put::parse_frame(&mut parse)?),
+            "delete" => Command::Delete(Delete::parse_frame(&mut parse)?),
             "reconfigure" => Command::Reconfigure(Reconfigure::parse_frame(&mut parse)?),
             "savesnapshot" => Command::SaveSnapshot(SaveSnapshot::parse_frame(&mut parse)?),
             "readsnapshot" => Command::ReadSnapshot(ReadSnapshot::parse_frame(&mut parse)?),

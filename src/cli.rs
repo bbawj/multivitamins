@@ -1,6 +1,7 @@
 pub mod client;
 pub mod command;
 pub mod connection;
+pub mod delete;
 pub mod disconnect;
 pub mod error;
 pub mod frame;

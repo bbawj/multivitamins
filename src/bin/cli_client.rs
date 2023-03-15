@@ -1,7 +1,7 @@
 
 use clap::{arg, command, Command, value_parser};
 use multivitamins::cli::{
-    get::Get, put::Put, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}, disconnect::Disconnect};
+    get::Get, put::Put, delete::Delete, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}, disconnect::Disconnect};
 
 #[tokio::main]
 async fn main() {
@@ -12,6 +12,7 @@ async fn main() {
         .arg_required_else_help(true)
         .subcommand(Command::new("get").about("Get a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)))
         .subcommand(Command::new("put").about("Set a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)).arg(arg!([VALUE]).required(true)))
+        .subcommand(Command::new("delete").about("Delete a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)))
         .subcommand(Command::new("reconfigure").about("Add a node with specified PID").arg(arg!([PID]).required(true).value_parser(value_parser!(u64))))
         .subcommand(Command::new("snapshot").about("Snapshot the log state").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64)))
                     .subcommand(Command::new("save"))
@@ -37,6 +38,13 @@ async fn main() {
             let put_cmd = Put::new(*target_node, key.to_string(), value.to_string());
             frame = put_cmd.to_frame();
        }, 
+       Some(("delete", sub_matches)) => {
+            let target_node = sub_matches.get_one::<u64>("TARGET_NODE").expect("[CliClient] delete command; target node is not a u64");
+            let key = sub_matches.get_one::<String>("KEY").expect("[CliClient] delete command; key is not a string");
+            println!("[CliClient] Key to delete is {}", key);
+            let delete_cmd = Delete::new(*target_node, key.to_string());
+            frame = delete_cmd.to_frame();
+       },
        Some(("reconfigure", sub_matches)) => {
             let pid = sub_matches.get_one::<u64>("PID").expect("[CliClient] reconfigure command; pid was not a u64");
             println!("[CliClient] Node pid to add is {}", *pid);

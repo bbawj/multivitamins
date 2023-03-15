@@ -358,12 +358,51 @@ async fn process_incoming_connection(omni_paxos: &Arc<Mutex<OmniPaxosKV>>, strea
                         let response_frame = match option_val {
 
                             // If there is a valid value for this key
-                            Some(val) => {
+                            Some(_) => {
                                 let kv_to_store = KeyValue { key: key.to_string(), val: "".to_string() };
                                 omni_paxos.lock().await.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
-                                let response_frame = Response::new("delete".to_string(), "OK".to_string()).to_frame();
-                                connection.write_frame(&response_frame).await.unwrap();
-                                continue;
+                                Response::new("delete".to_string(), "OK".to_string()).to_frame()
+                            },
+
+                            // If there is no valid value for this key
+                            None => Error::new(format!("Key {} is not found", key)).to_frame(),
+                        };
+                        connection.write_frame(&response_frame).await.unwrap();
+                        continue;
+                    },
+                    None => {
+                        let error = format!("Key {} is not found", key);
+                        let error_frame = Error::new(error).to_frame();
+                        connection.write_frame(&error_frame).await.unwrap();
+                        continue;
+                    },
+                }
+            },
+            Command::CAS(cas_msg) => {
+                println!("[OPServer {}] Received CAS message: {:?}", pid, cas_msg);
+                let key = cas_msg.key();
+                let expected_value = cas_msg.expected_value();
+                let new_value = cas_msg.new_value();
+
+                let maybe_log_entries = 
+                    omni_paxos.lock().await
+                    .read_decided_suffix(0);
+    
+                match maybe_log_entries {
+                    Some(log_entries) => {
+                        let option_val = get_val_from_log_entries(log_entries, key);
+                        let response_frame = match option_val {
+
+                            // If there is a valid value for this key
+                            Some(val) => {
+                                // If the expected value matches the actual value
+                                if val == expected_value {
+                                    let kv_to_store = KeyValue { key: key.to_string(), val: new_value.to_string() };
+                                    omni_paxos.lock().await.append(kv_to_store).expect("Failed to append to OmniPaxos instance");
+                                    Response::new(key.to_string(), new_value.to_string()).to_frame()
+                                } else {
+                                    Response::new(key.to_string(), val).to_frame()
+                                }
                             },
 
                             // If there is no valid value for this key

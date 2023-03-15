@@ -1,3 +1,4 @@
+pub mod cas;
 pub mod client;
 pub mod command;
 pub mod connection;

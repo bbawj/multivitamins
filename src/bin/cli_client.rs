@@ -1,7 +1,7 @@
 
 use clap::{arg, command, Command, value_parser};
 use multivitamins::cli::{
-    get::Get, put::Put, delete::Delete, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}, disconnect::Disconnect};
+    get::Get, put::Put, delete::Delete, cas::CAS, client, reconfigure::Reconfigure, snapshot::{SaveSnapshot, ReadSnapshot}, disconnect::Disconnect};
 
 #[tokio::main]
 async fn main() {
@@ -13,6 +13,7 @@ async fn main() {
         .subcommand(Command::new("get").about("Get a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)))
         .subcommand(Command::new("put").about("Set a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)).arg(arg!([VALUE]).required(true)))
         .subcommand(Command::new("delete").about("Delete a key").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)))
+        .subcommand(Command::new("cas").about("Set a key to a new value if it was a particular value").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64))).arg(arg!([KEY]).required(true)).arg(arg!([EXPECTED_VALUE]).required(true)).arg(arg!([NEW_VALUE]).required(true)))
         .subcommand(Command::new("reconfigure").about("Add a node with specified PID").arg(arg!([PID]).required(true).value_parser(value_parser!(u64))))
         .subcommand(Command::new("snapshot").about("Snapshot the log state").arg(arg!(-t <TARGET_NODE>).required(false).default_value("0").value_parser(value_parser!(u64)))
                     .subcommand(Command::new("save"))
@@ -44,6 +45,15 @@ async fn main() {
             println!("[CliClient] Key to delete is {}", key);
             let delete_cmd = Delete::new(*target_node, key.to_string());
             frame = delete_cmd.to_frame();
+       },
+       Some(("cas", sub_matches)) => {
+            let target_node = sub_matches.get_one::<u64>("TARGET_NODE").expect("[CliClient] cas command; target node is not a u64");
+            let key = sub_matches.get_one::<String>("KEY").expect("[CliClient] cas command; key is not a string");
+            let expected_value = sub_matches.get_one::<String>("EXPECTED_VALUE").expect("[CliClient] cas command; key is not a string");
+            let new_value = sub_matches.get_one::<String>("NEW_VALUE").expect("[CliClient] cas command; key is not a string");
+            println!("[CliClient] If stored value of {} is {}, new value is {}", key, expected_value, new_value);
+            let cas_cmd = CAS::new(*target_node, key.to_string(), expected_value.to_string(), new_value.to_string());
+            frame = cas_cmd.to_frame();
        },
        Some(("reconfigure", sub_matches)) => {
             let pid = sub_matches.get_one::<u64>("PID").expect("[CliClient] reconfigure command; pid was not a u64");

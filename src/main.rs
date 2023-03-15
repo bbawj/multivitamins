@@ -1,9 +1,23 @@
 use multivitamins::{DEFAULT_ADDR, CliServer};
 use multivitamins::op_server::OmniPaxosServer;
+use serde::Deserialize;
 use std::collections::HashMap;
-use std::usize;
-use std::cell::Cell;
+use std::{usize, fs};
+use toml;
 
+
+// Top level struct to hold the TOML data.
+#[derive(Deserialize)]
+struct ConfigData {
+    config: Config,
+}
+
+// Config struct holds to data from the `[config]` section.
+#[derive(Deserialize)]
+struct Config {
+    config_id: u32,
+    nodes: Vec<String>,
+}
 
 
 #[tokio::main]
@@ -14,23 +28,31 @@ use std::cell::Cell;
 // In reality, the nodes would be running on different machines, and the CLI server would be running on a separate machine.
 async fn main() {
 
+    let config_file_name = "config.toml";
+    let config_toml_contents = match fs::read_to_string(config_file_name) {
+        Ok(contents) => contents,
+        Err(e) => {
+            println!("Error reading config file: {}", e);
+            return;
+        }
+    };
+    let config_data: ConfigData = match toml::from_str(&config_toml_contents) {
+        Ok(data) => data,
+        Err(e) => {
+            println!("Error parsing config file: {}", e);
+            return;
+        }
+    };
 
-    // configuration with id 1 and the following cluster
-    // TODO: bring this out into a config file
-    let configuration_id: u32 = 1;
+    
+    let configuration_id = config_data.config.config_id;
 
     // Create a mapping of peer IDs (1, 2, ..., n) to Node
-    // TODO: dynamically create this from a config file
     let mut topology: HashMap<u64, String> = HashMap::new();
-
-    const num_nodes: usize = 10;
-
-    for id in 0..(num_nodes as u64){
-        topology.insert(1+id, format!("{}:{}", DEFAULT_ADDR, 50000+id));
+    let topology_arr = config_data.config.nodes;
+    for id in 0..(topology_arr.len() as u64){
+        topology.insert(1+id, topology_arr[id as usize].clone());
     }
-    //topology.insert(1, format!("{}:{}", DEFAULT_ADDR, 50000));
-    //topology.insert(2, format!("{}:{}", DEFAULT_ADDR, 50001));
-    // topology.insert(3, format!("{}:{}", DEFAULT_ADDR, 50002));
 
     // The main work that this function does.
     let node_handler: Vec<tokio::task::JoinHandle<Vec<tokio::task::JoinHandle<()>>>> = spawn_local_nodes(configuration_id, topology.clone()).await;
